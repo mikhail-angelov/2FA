@@ -66,6 +66,29 @@ class ImagePrepTest {
     }
 
     @Test
+    fun `мелкий снимок увеличивается до 1600 px`() {
+        assertEquals(1600f / 238f, ImagePrep.upscaleTarget(238), 0.001f)
+    }
+
+    @Test
+    fun `увеличения вдвое не хватает — проверено на живом образце 238 px`() {
+        // 476 px — это ровно то, что получалось бы при вдвое меньшем масштабе, и код на нём
+        // ещё не читается; значит целевой коэффициент обязан быть больше двух.
+        assertTrue("коэффициент должен быть > 2", ImagePrep.upscaleTarget(238) > 2f)
+    }
+
+    @Test
+    fun `крупные картинки не растягиваются`() {
+        assertEquals(1f, ImagePrep.upscaleTarget(1600), 0.001f)
+        assertEquals(1f, ImagePrep.upscaleTarget(4000), 0.001f)
+    }
+
+    @Test
+    fun `нулевой размер не приводит к делению на ноль`() {
+        assertEquals(1f, ImagePrep.upscaleTarget(0), 0.001f)
+    }
+
+    @Test
     fun `несовпадение размеров — ошибка, а не молчаливая порча`() {
         val failed = runCatching { ImagePrep.addWhiteBorder(IntArray(3), 2, 2, 1) }.isFailure
         assertTrue("ожидали исключение", failed)

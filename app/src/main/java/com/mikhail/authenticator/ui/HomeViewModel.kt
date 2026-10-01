@@ -195,7 +195,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val longest = maxOf(upright.width, upright.height).coerceAtLeast(1)
-        val scale = if (longest < 800) 800f / longest else 1f
+        val scale = ImagePrep.upscaleTarget(longest)
         val base = if (scale > 1f) {
             Bitmap.createScaledBitmap(
                 upright,
