@@ -3,6 +3,7 @@ package com.mikhail.authenticator.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -91,6 +93,15 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scanning = true
         else scope.launch { snackbarHostState.showSnackbar("Без доступа к камере можно ввести ключ вручную") }
+    }
+
+    /**
+     * Google Authenticator import: the system PhotoPicker hands back one image URI, so the app
+     * needs no READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE permission at all.
+     */
+    val screenshotPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch { snackbarHostState.showSnackbar(viewModel.importFromImage(uri)) }
     }
 
     /** Copy the code and wipe the clipboard 30 s later (spec §3.Г). */
@@ -183,6 +194,17 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 modifier = Modifier.clickableItem {
                     showAddSheet = false
                     if (hasCamera(context)) cameraPermission.launch(Manifest.permission.CAMERA) else null
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Импорт из скриншота") },
+                supportingContent = { Text("Ключи из Google Authenticator") },
+                leadingContent = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) },
+                modifier = Modifier.clickableItem {
+                    showAddSheet = false
+                    screenshotPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
                 },
             )
             ListItem(

@@ -53,8 +53,10 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
+      # The unit tests are variant-independent; AGP only creates a test<variant>UnitTest task
+      # for variants that have their own test source set, so debug is the one that exists.
       - name: Run unit tests
-        run: ./gradlew :app:testReleaseUnitTest --console=plain
+        run: ./gradlew :app:testDebugUnitTest --console=plain
 
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --console=plain

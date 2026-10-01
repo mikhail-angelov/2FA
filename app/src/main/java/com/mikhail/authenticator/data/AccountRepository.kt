@@ -41,18 +41,37 @@ class AccountRepository(
 
     /**
      * Adds accounts from a vault payload.
-     * @param skipDuplicates when true, entries with the same issuer+account are ignored
-     *   (the default on import — re-importing a backup should not double every entry).
+     * @param skipDuplicates when true, accounts already present (by secret) are ignored.
      * @return how many accounts were actually added.
      */
-    suspend fun import(entries: List<VaultEntry>, skipDuplicates: Boolean = true): Int {
+    suspend fun import(entries: List<VaultEntry>, skipDuplicates: Boolean = true): Int =
+        importAccounts(entries.map { it.toAccount() }, skipDuplicates).added
+
+    /** How an import went: how many landed, how many were already there. */
+    data class ImportOutcome(val added: Int, val duplicates: Int)
+
+    /**
+     * Adds accounts, skipping any whose Base32 secret is already stored.
+     *
+     * Duplicates are matched by the secret itself, not by the visible label: the same account
+     * re-imported (from a backup or from a Google Authenticator screenshot) usually arrives
+     * with a slightly different name, while the secret is byte-identical. Rows are encrypted
+     * with a random IV each, so ciphertexts cannot be compared in SQL — the comparison happens
+     * here, on values that are already decrypted for display anyway.
+     */
+    suspend fun importAccounts(accounts: List<OtpAccount>, skipDuplicates: Boolean = true): ImportOutcome {
+        val seen = if (skipDuplicates) this.accounts().mapTo(mutableSetOf()) { it.secret } else mutableSetOf()
         var added = 0
-        for (entry in entries) {
-            if (skipDuplicates && dao.countByLabel(entry.issuer, entry.account) > 0) continue
-            add(entry.toAccount())
+        var duplicates = 0
+        for (account in accounts) {
+            if (!seen.add(account.secret)) {
+                duplicates++
+                continue
+            }
+            add(account)
             added++
         }
-        return added
+        return ImportOutcome(added, duplicates)
     }
 
     suspend fun exportEntries(): List<VaultEntry> = accounts().map { stored ->

@@ -11,6 +11,12 @@ Kotlin · Jetpack Compose · Room · ML Kit (QR) · CameraX · Coil — nothing 
   current six-digit code and a 30-second ring. Tap a card to copy the code.
 - **Add by QR or by hand.** Scanning reads `otpauth://totp/…` and rejects anything that is not
   a TOTP URI instead of guessing. Manual entry takes issuer, account and Base32 secret.
+- **Import from a Google Authenticator screenshot.** Pick a screenshot, the QR is read with
+  ML Kit, and the `otpauth-migration://` payload is decoded without pulling in protobuf: the
+  seven-field message is read by a small hand-written reader. Multi-QR exports ("1 of 3") are
+  collected across screenshots and only written when the last part arrives; HOTP and MD5
+  entries are skipped and counted rather than imported as accounts that would never produce a
+  matching code. No media permission is needed — the system PhotoPicker returns one image.
 - **Adaptive grid.** One column in portrait, two in landscape, on tablets and foldables.
 - **Encrypted export/import.** A password-protected JSON file written through the Storage
   Access Framework — the user picks the folder, the app never asks for broad storage access.
@@ -76,6 +82,10 @@ GitHub Secrets; see `.github/workflows/release.yml`.
   URIs, missing secret).
 - `VaultCodecTest` — export/import round trip, wrong password (`AEADBadTagException`),
   tampered payload, and proof that no secret appears in the clear in the exported file.
+- `GoogleAuthMigrationTest` — the Google Authenticator payload. One fixture is written out byte
+  by byte straight from the schema, so the reader cannot be validated by the writer that
+  produced it; the rest cover the RFC key mapping to its known Base32 string, percent-encoded
+  payloads (where a naive URL decoder breaks on `+`), unknown fields, and truncated input.
 
 Network is not needed for the tests.
 
