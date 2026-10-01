@@ -102,4 +102,151 @@ object ImagePrep {
 
     const val BLACK = 0xFF000000.toInt()
     const val WHITE = 0xFFFFFFFF.toInt()
+
+    /**
+     * Увеличение с бикубической интерполяцией (Catmull-Rom) — по серому массиву.
+     *
+     * Почему не [android.graphics.Bitmap.createScaledBitmap]: он умеет только билинейное
+     * сглаживание, а на мелком коде (в разборе — 238×236 при 853 знаках, около трёх пикселей
+     * на модуль) разница решающая. Проверено на живом образце: по цветной картинке декодер не
+     * находит код ни в одном из 84 вариантов подготовки, а по серой картинке, увеличенной ×4
+     * бикубикой, — находит сразу. Поэтому увеличение делаем сами, чистой арифметикой: тогда
+     * оно и проверяется юнит-тестами.
+     *
+     * @param gray яркость пикселей (0..255), [w] × [h]
+     * @param factor целочисленный множитель (1 — без увеличения)
+     * @return яркость новой картинки, [w] * [factor] × [h] * [factor]
+     */
+    fun upscaleBicubic(gray: IntArray, w: Int, h: Int, factor: Int): IntArray {
+        require(w > 0 && h > 0) { "нужны размеры картинки" }
+        require(gray.size == w * h) { "размер массива не совпадает с $w x $h" }
+        require(factor >= 1) { "множитель должен быть не меньше единицы" }
+        if (factor == 1) return gray
+
+        val nw = w * factor
+        val nh = h * factor
+        val out = IntArray(nw * nh)
+
+        for (y in 0 until nh) {
+            // центр исходного пикселя, соответствующий центру нового
+            val sy = (y + 0.5) / factor - 0.5
+            val y0 = kotlin.math.floor(sy).toInt()
+            val fy = sy - y0
+            for (x in 0 until nw) {
+                val sx = (x + 0.5) / factor - 0.5
+                val x0 = kotlin.math.floor(sx).toInt()
+                val fx = sx - x0
+
+                var acc = 0.0
+                var weight = 0.0
+                for (j in -1..2) {
+                    val wy = cubicWeight(fy - j)
+                    val yy = (y0 + j).coerceIn(0, h - 1)
+                    for (i in -1..2) {
+                        val wx = cubicWeight(fx - i)
+                        val xx = (x0 + i).coerceIn(0, w - 1)
+                        val t = wx * wy
+                        acc += t * gray[yy * w + xx]
+                        weight += t
+                    }
+                }
+                val v = if (weight != 0.0) acc / weight else acc
+                out[y * nw + x] = v.toInt().coerceIn(0, 255)
+            }
+        }
+        return out
+    }
+
+    /** Вес бикубической интерполяции (Catmull-Rom, a = -0,5) для расстояния [t]. */
+    private fun cubicWeight(t: Double): Double {
+        val a = -0.5
+        val at = kotlin.math.abs(t)
+        return when {
+            at <= 1.0 -> ((a + 2) * at - (a + 3)) * at * at + 1
+            at < 2.0 -> (((at - 5) * at + 8) * at - 4) * a
+            else -> 0.0
+        }
+    }
+
+    /**
+     * Бикубическое увеличение ×[factor] с разделением по осям — для больших множителей.
+     *
+     * Зачем отдельный вариант: проверено на живом образце, что код в мелкой картинке читается
+     * только при увеличении ×16 (3808 px), а ×4, ×6, ×8 и ×12 не читаются. На таких размерах
+     * прямой перебор 4×4 на каждый пиксель — это 230 млн умножений; ядро разделяется по осям,
+     * и работа сокращается вчетверо: сначала проход по горизонтали, затем по вертикали.
+     *
+     * Возвращает яркость **байтами**: 14 МБ вместо 57 МБ на `IntArray` того же размера.
+     * Промежуточные значения держатся в Double (одна строка — десятки килобайт), поэтому
+     * результат совпадает с [upscaleBicubic] до последнего бита, а не «примерно».
+     */
+    fun upscaleBicubicBytes(gray: IntArray, w: Int, h: Int, factor: Int): ByteArray {
+        require(w > 0 && h > 0) { "нужны размеры картинки" }
+        require(gray.size == w * h) { "размер массива не совпадает с $w x $h" }
+        require(factor >= 1) { "множитель должен быть не меньше единицы" }
+        if (factor == 1) return ByteArray(gray.size) { gray[it].toByte() }
+
+        val nw = w * factor
+        val nh = h * factor
+
+        // Смещение и веса зависят только от номера пикселя внутри шага, поэтому таблица
+        // считается один раз на множитель — иначе веса пересчитывались бы миллионы раз.
+        // Сумма весов нужна для нормировки: у краёв часть соседей поджимается к границе, и без
+        // деления на сумму края уходят в темноту (проверено сверкой с прямым перебором).
+        val offset = IntArray(factor)
+        val wts = Array(factor) { DoubleArray(4) }
+        val sums = DoubleArray(factor)
+        for (r in 0 until factor) {
+            val s = (r + 0.5) / factor - 0.5
+            val base = kotlin.math.floor(s).toInt()
+            val frac = s - base
+            offset[r] = base
+            var sum = 0.0
+            for (j in -1..2) {
+                wts[r][j + 1] = cubicWeight(frac - j)
+                sum += wts[r][j + 1]
+            }
+            sums[r] = if (sum != 0.0) sum else 1.0
+        }
+
+        // Проход по горизонтали: каждая исходная строка растягивается до nw значений.
+        val rows = Array(h) { DoubleArray(nw) }
+        for (y in 0 until h) {
+            val src = y * w
+            for (x in 0 until nw) {
+                val r = x % factor
+                val i0 = x / factor + offset[r]
+                val k = wts[r]
+                var acc = 0.0
+                for (j in 0 until 4) {
+                    val sx = (i0 + j - 1).coerceIn(0, w - 1)
+                    acc += k[j] * gray[src + sx]
+                }
+                rows[y][x] = acc / sums[r]
+            }
+        }
+
+        // Проход по вертикали: собираем итоговую яркость байтами.
+        val out = ByteArray(nw * nh)
+        for (y in 0 until nh) {
+            val r = y % factor
+            val j0 = y / factor + offset[r]
+            val k = wts[r]
+            val norm = sums[r]
+            val row0 = rows[(j0 - 1).coerceIn(0, h - 1)]
+            val row1 = rows[j0.coerceIn(0, h - 1)]
+            val row2 = rows[(j0 + 1).coerceIn(0, h - 1)]
+            val row3 = rows[(j0 + 2).coerceIn(0, h - 1)]
+            val k0 = k[0]
+            val k1 = k[1]
+            val k2 = k[2]
+            val k3 = k[3]
+            val base = y * nw
+            for (x in 0 until nw) {
+                val v = (k0 * row0[x] + k1 * row1[x] + k2 * row2[x] + k3 * row3[x]) / norm
+                out[base + x] = v.toInt().coerceIn(0, 255).toByte()
+            }
+        }
+        return out
+    }
 }

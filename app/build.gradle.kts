@@ -24,8 +24,8 @@ android {
         applicationId = "com.mikhail.authenticator"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -90,6 +90,8 @@ dependencies {
 
     // QR scanning
     implementation(libs.mlkit.barcode)
+    // Второй декодер: ML Kit сдаётся на мелком коде, ZXing его берёт (см. MigrationQrDecoder).
+    implementation(libs.zxing.core)
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)

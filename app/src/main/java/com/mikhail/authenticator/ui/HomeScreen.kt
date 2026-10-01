@@ -23,12 +23,13 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,8 +77,13 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+
+    // Настройки: как в прошлый раз выбрал пользователь, столько колонок и показываем.
+    // Отдельного экрана настроек в приложении нет и не нужно — одна строка, одна настройка.
+    val preferences = remember { context.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE) }
+    var portraitColumns by remember { mutableStateOf(preferences.getInt(KEY_COLUMNS, 1).coerceIn(1, 2)) }
+    var showSettings by remember { mutableStateOf(false) }
 
     var showAddSheet by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
@@ -182,6 +188,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("2FA") },
                 actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                    }
                     IconButton(onClick = { vaultDialog = VaultDialog.Export }) {
                         Icon(Icons.Filled.Share, contentDescription = "Экспорт и импорт")
                     }
@@ -196,21 +205,11 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.searchQuery.value = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                placeholder = { Text("Поиск") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-            )
-
             if (accounts.isEmpty()) {
-                EmptyState(query = searchQuery, modifier = Modifier.fillMaxSize())
+                EmptyState(modifier = Modifier.fillMaxSize())
             } else {
-                val columns = if (isLandscape()) 2 else 1
+                // В портретном режиме — сколько выбрано в настройках, в ландшафте всегда две.
+                val columns = if (isLandscape()) 2 else portraitColumns
                 LazyAccountGrid(
                     accounts = accounts,
                     columns = columns,
@@ -282,7 +281,39 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
         )
     }
+
+    // Единственная настройка приложения: сколько колонок в списке в портретном режиме.
+    // В ландшафте всегда две — там места хватает, и спрашивать не о чем.
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+            title = { Text("Настройки") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Колонок в списке (портретный режим)")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(1 to "Одна", 2 to "Две").forEach { (count, label) ->
+                            FilterChip(
+                                selected = portraitColumns == count,
+                                onClick = {
+                                    portraitColumns = count
+                                    preferences.edit().putInt(KEY_COLUMNS, count).apply()
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Готово") } },
+        )
+    }
 }
+
+/** Имена для настроек: одно поле, одна настройка. */
+private const val SETTINGS = "settings"
+private const val KEY_COLUMNS = "columns_portrait"
 
 /** Small helper so list rows read as tappable without pulling in the experimental API. */
 private fun Modifier.clickableItem(onClick: () -> Unit): Modifier =
@@ -292,18 +323,15 @@ private fun hasCamera(context: android.content.Context): Boolean =
     context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
 
 @Composable
-private fun EmptyState(query: String, modifier: Modifier = Modifier) {
+private fun EmptyState(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Text(text = "Пока пусто", style = MaterialTheme.typography.titleMedium)
         Text(
-            text = if (query.isBlank()) "Пока пусто" else "Ничего не найдено",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = if (query.isBlank()) "Добавьте аккаунт кнопкой +" else "Попробуйте другой запрос",
+            text = "Добавьте аккаунт кнопкой +",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

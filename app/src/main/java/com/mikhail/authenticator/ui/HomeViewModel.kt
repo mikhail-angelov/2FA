@@ -21,15 +21,26 @@ import com.mikhail.authenticator.otp.OtpAccount
 import com.mikhail.authenticator.vault.VaultCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
+
+/** Предел стороны при большом увеличении: выше этого размера память и время уже не оправданы. */
+const val MAX_SCALE_PIXELS = 4200
+const val MAX_SCALE_FACTOR = 16
+
+/**
+ * До какого множителя увеличивать мелкую картинку: чтобы сторона не вышла за [MAX_SCALE_PIXELS].
+ * Для снимка 238×236 это ×16 (3808 px) — проверенный рабочий размер; для крупных картинок
+ * множитель сам становится единицей, и лишней работы не делается. Правило общее для приложения
+ * и тестов, чтобы тест не проверял не тот путь, которым идёт телефон.
+ */
+fun bigUpscaleFactor(longest: Int): Int =
+    (MAX_SCALE_PIXELS / longest.coerceAtLeast(1)).coerceIn(1, MAX_SCALE_FACTOR)
 
 private const val TAG = "OtpImport"
 
@@ -37,20 +48,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AccountRepository(AppDatabase.get(application).otpDao())
 
-    val searchQuery = MutableStateFlow("")
-
     private val allAccounts: StateFlow<List<StoredAccount>> =
         repository.observeAccounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Accounts after the search box: matches issuer, account or the group each belongs to. */
-    val accounts: StateFlow<List<StoredAccount>> =
-        combine(allAccounts, searchQuery) { list, query ->
-            val q = query.trim()
-            if (q.isEmpty()) list
-            else list.filter {
-                it.issuer.contains(q, ignoreCase = true) || it.account.contains(q, ignoreCase = true)
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /**
+     * Все аккаунты, как есть.
+     *
+     * Поиска здесь больше нет: в приложении на десяток ключей список виден целиком, а поле
+     * поиска только съедало верхнюю часть экрана и сбивало с толку («Ничего не найдено» вместо
+     * списка, когда строка оставалась непустой).
+     */
+    val accounts: StateFlow<List<StoredAccount>> = allAccounts
 
     fun add(account: OtpAccount) {
         viewModelScope.launch { repository.add(account) }
@@ -141,7 +149,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Default) {
                 val iterator = variantSequence(bitmap).iterator()
                 while (iterator.hasNext()) {
-                    val image = try {
+                    val prepared = try {
                         iterator.next()
                     } catch (t: Throwable) {
                         failure = t
@@ -149,14 +157,27 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         break
                     }
                     tried++
+                    var foundBy = "ML Kit"
                     try {
-                        raw = scanForMigrationUri(image)
+                        // Крупные варианты готовятся только для ZXing: объект для ML Kit там null.
+                        raw = prepared.image?.let { scanForMigrationUri(it) }
                     } catch (t: Throwable) {
                         failure = t
-                        Log.w(TAG, "вариант $tried сорвался", t)
-                        continue
+                        Log.w(TAG, "вариант $tried сорвался на ML Kit", t)
+                        raw = null
                     }
-                    Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
+                    // Второй декодер на тех же пикселях: на мелком коде ML Kit не находит
+                    // ничего, а ZXing находит — поэтому пробуем оба, не готовя вариант заново.
+                    if (raw == null) {
+                        foundBy = "ZXing"
+                        raw = try {
+                            MigrationQrDecoder.decode(prepared.gray, prepared.width, prepared.height)
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "вариант $tried сорвался на ZXing", t)
+                            null
+                        }
+                    }
+                    Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса ($foundBy)"}")
                     if (raw != null) break
                 }
             }
@@ -246,61 +267,110 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         return out
     }
 
+    /** Один подготовленный вариант: картинка для ML Kit и те же пиксели для ZXing. */
+    private class Prepared(
+        val image: InputImage?,
+        val gray: ByteArray,
+        val width: Int,
+        val height: Int,
+    )
+
+    /** Серые пиксели → картинка ARGB, которую принимает детектор. */
+    private fun toImage(gray: IntArray, width: Int, height: Int): InputImage {
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        out.setPixels(gray, 0, width, 0, 0, width, height)
+        return InputImage.fromBitmap(out, 0)
+    }
+
     /**
-     * Готовит варианты одной картинки для детектора — последовательно, по одному в памяти.
+     * Готовит варианты одной картинки для детекторов — последовательно, по одному в памяти.
      *
-     * Экранные снимки приходят мелкими (проверенный образец — 238×236), размытыми и
-     * обрезанными в край. Поэтому предлагаем: как есть; каждый целевой размер с белым полем
-     * (без него детектор не находит углы кода); то же после бинаризации по Оцу. Порядок — от
-     * дешёвого к обработанному: если код читается сразу, лишняя работа не делается.
+     * Порядок — от дешёвого к обработанному, а внутри обработки первым идёт рецепт, который на
+     * живом образце сработал: **серое, увеличенное ×4 бикубикой**. Именно его не хватало:
+     * по цветной картинке ни один декодер код не находил, по этим пикселям находит сразу и
+     * ZXing, и (на стенде) ML Kit. Затем тот же вариант с белым полем и с бинаризацией по Оцу,
+     * и лишь потом прежний путь с билинейным увеличением через `Bitmap.createScaledBitmap` —
+     * он выручает, когда картинка крупнее и сглаживания достаточно.
      *
      * Формат пикселей обязан быть ARGB_8888 — ML Kit отвергает bitmap в другом формате,
      * а декодер JPEG отдаёт RGB_565. Последовательность, а не список, потому что каждый
      * увеличенный вариант — это мегабайты пикселей, и держать их все разом незачем.
      */
-    private fun variantSequence(bitmap: Bitmap): Sequence<InputImage> = sequence {
+    private fun variantSequence(bitmap: Bitmap): Sequence<Prepared> = sequence {
         val upright = toArgb8888(bitmap)
+        val w0 = upright.width.coerceAtLeast(1)
+        val h0 = upright.height.coerceAtLeast(1)
 
-        yield(InputImage.fromBitmap(upright, 0))
+        val pixels0 = IntArray(w0 * h0)
+        upright.getPixels(pixels0, 0, w0, 0, 0, w0, h0)
+        val gray0 = ImagePrep.luminance(pixels0)
 
-        val longest = maxOf(upright.width, upright.height).coerceAtLeast(1)
-        for (scale in ImagePrep.upscaleTargets(longest)) {
-            val base = if (scale > 1f) {
-                Bitmap.createScaledBitmap(
-                    upright,
-                    (upright.width * scale).toInt().coerceAtLeast(1),
-                    (upright.height * scale).toInt().coerceAtLeast(1),
-                    true,
-                )
-            } else {
-                upright
-            }
+        // 1) как есть — самый дешёвый вариант, для крупных и контрастных картинок
+        yield(Prepared(InputImage.fromBitmap(upright, 0), MigrationQrDecoder.toGrayBytes(gray0), w0, h0))
 
-            val pixels = IntArray(base.width * base.height)
-            base.getPixels(pixels, 0, base.width, 0, 0, base.width, base.height)
+        // 2) серое ×4 бикубикой — рецепт, найденный на живом образце
+        val factor = 4
+        val gw = w0 * factor
+        val gh = h0 * factor
+        val big = ImagePrep.upscaleBicubic(gray0, w0, h0, factor)
+        yield(Prepared(toImage(big, gw, gh), MigrationQrDecoder.toGrayBytes(big), gw, gh))
 
-            // Увеличенный, но необработанный вариант: на проверенном образце выигрыш дало
-            // именно чистое ×4 без белого поля, поэтому пробуем и его.
-            yield(InputImage.fromBitmap(base, 0))
+        // 3) то же с белым полем: детектору нужна граница, чтобы найти углы кода
+        val pad = maxOf(8, minOf(gw, gh) / 12)
+        val padded = ImagePrep.addWhiteBorder(big, gw, gh, pad)
+        val pw = gw + pad * 2
+        val ph = gh + pad * 2
+        yield(Prepared(toImage(padded, pw, ph), MigrationQrDecoder.toGrayBytes(padded), pw, ph))
 
+        // 4) то же с полем и бинаризацией по Оцу
+        val thresholded = ImagePrep.binarize(padded, ImagePrep.otsuThreshold(padded))
+        yield(Prepared(toImage(thresholded, pw, ph), MigrationQrDecoder.toGrayBytes(thresholded), pw, ph))
+
+        // 5) прежний путь: билинейное увеличение целевыми размерами (кроме уже сделанного ×4)
+        for (scale in ImagePrep.upscaleTargets(maxOf(w0, h0))) {
+            if (scale <= 1f || scale.toInt() == factor) continue
+            val base = Bitmap.createScaledBitmap(
+                upright,
+                (w0 * scale).toInt().coerceAtLeast(1),
+                (h0 * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+            val bw = base.width.coerceAtLeast(1)
+            val bh = base.height.coerceAtLeast(1)
+            val pixels = IntArray(bw * bh)
+            base.getPixels(pixels, 0, bw, 0, 0, bw, bh)
             val gray = ImagePrep.luminance(pixels)
-            val pad = maxOf(8, minOf(base.width, base.height) / 12)
-            val padded = ImagePrep.addWhiteBorder(gray, base.width, base.height, pad)
-            val pw = base.width + pad * 2
-            val ph = base.height + pad * 2
+            yield(Prepared(InputImage.fromBitmap(base, 0), MigrationQrDecoder.toGrayBytes(gray), bw, bh))
 
-            fun asImage(px: IntArray): InputImage {
-                val out = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
-                out.setPixels(px, 0, pw, 0, 0, pw, ph)
-                return InputImage.fromBitmap(out, 0)
-            }
+            val p = maxOf(8, minOf(bw, bh) / 12)
+            val pd = ImagePrep.addWhiteBorder(gray, bw, bh, p)
+            val w = bw + p * 2
+            val h = bh + p * 2
+            yield(Prepared(toImage(pd, w, h), MigrationQrDecoder.toGrayBytes(pd), w, h))
 
-            yield(asImage(padded))
-            yield(asImage(ImagePrep.binarize(padded, ImagePrep.otsuThreshold(padded))))
+            val b = ImagePrep.binarize(pd, ImagePrep.otsuThreshold(pd))
+            yield(Prepared(toImage(b, w, h), MigrationQrDecoder.toGrayBytes(b), w, h))
+        }
+
+        // 6) Большое увеличение бикубикой — для мелких пережатых картинок.
+        //
+        // Проверено на живом образце 238×236: код читается только при ×16 (3808 px), а ×4, ×6,
+        // ×8 и ×12 не читаются, причём «×4 бикубика + дешёвое увеличение» при том же итоговом
+        // размере тоже не работает. Причина — бинаризатор ZXing смотрит блоками 8×8 пикселей:
+        // при мелких модулях блок ложится на границу чёрного и белого, и порог получается
+        // смазанным. Здесь модуль выходит около 30 пикселей, и блоки целиком попадают внутрь
+        // модуля. Картинку такого размера в память для ML Kit не тянем (57 МБ на ARGB):
+        // хватает байтов яркости (14 МБ), их и отдаём декодеру.
+        val bigFactor = bigUpscaleFactor(maxOf(w0, h0))
+        if (bigFactor > factor) {
+            val huge = ImagePrep.upscaleBicubicBytes(gray0, w0, h0, bigFactor)
+            yield(Prepared(null, huge, w0 * bigFactor, h0 * bigFactor))
         }
     }
 
-    /** Runs the ML Kit scan over a still image and returns the migration URI, if there is one. */
+    /**
+     * Runs the ML Kit scan over a still image and returns the migration URI, if there is one.
+     */
     private suspend fun scanForMigrationUri(image: InputImage): String? {
         val scanner = BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()

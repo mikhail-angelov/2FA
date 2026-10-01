@@ -1,6 +1,7 @@
 package com.mikhail.authenticator.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -97,5 +98,33 @@ class ImagePrepSampleTest {
         assertTrue("поле должно менять картинку", !padded.contentEquals(big))
         assertTrue("бинаризация должна менять картинку", !prepared.contentEquals(padded))
         assertEquals("поле добавляет ровно рамку", pw * ph, padded.size)
+    }
+
+    /**
+     * Главная проверка на живом образце: мелкий код **не читается как есть**, но читается после
+     * большого увеличения. Именно на этом живом случае (238×236, 853 знака) найдено, что решает
+     * не интерполяция, а итоговый масштаб: при ×16 модуль занимает около 30 пикселей, и блоки
+     * бинаризатора 8×8 целиком попадают внутрь модуля.
+     *
+     * Тест идёт только при заданном `OTP_SAMPLE`: в QR живые секреты, в репозиторий он не попадает.
+     */
+    @Test
+    fun `мелкий живой образец читается только после большого увеличения`() {
+        val sample = loadSample()
+        assumeTrue("нет OTP_SAMPLE — тест пропущен", sample != null)
+        val src = sample!!
+        val gray = ImagePrep.luminance(src.pixels)
+
+        val raw = MigrationQrDecoder.decode(MigrationQrDecoder.toGrayBytes(gray), src.width, src.height)
+        println("ЖИВОЙ ОБРАЗЕЦ ${src.width}x${src.height}: без подготовки ${if (raw == null) "не читается" else "ЧИТАЕТСЯ"}")
+        assertEquals("живой образец должен быть трудным: как есть код не читается", null, raw)
+
+        val factor = bigUpscaleFactor(maxOf(src.width, src.height))
+        val big = ImagePrep.upscaleBicubicBytes(gray, src.width, src.height, factor)
+        val read = MigrationQrDecoder.decode(big, src.width * factor, src.height * factor)
+        val length = read?.substringAfter("data=")?.length ?: 0
+        println("ЖИВОЙ ОБРАЗЕЦ: после ×$factor (${src.width * factor} px) — знаков нагрузки $length")
+        assertNotNull("живой образец не распознан даже после увеличения ×$factor", read)
+        assertTrue("распознан не миграционный код", read!!.startsWith("otpauth-migration://"))
     }
 }
