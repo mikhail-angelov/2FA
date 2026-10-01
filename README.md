@@ -87,7 +87,7 @@ Tag a commit and CI builds the signed APK onto the release:
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-Repository secrets required: `SIGNING_KEY_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+Repository secrets required: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
 `KEY_PASSWORD`. Signing runs inside Gradle with the keystore materialised in-job and shredded
 afterwards — no third-party action ever receives the key material.
 

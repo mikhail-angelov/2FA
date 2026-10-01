@@ -198,7 +198,7 @@ systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=1G \
 пишется локально, после сборки файлы стираются (`shred`). Так пароли подписи не видит ни
 один сторонний экшен — что для сборки аутентификатора важно.
 
-Секреты репозитория: `SIGNING_KEY_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+Секреты репозитория: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 Без них релиз собирается неподписанным, о чём workflow честно предупреждает.
 
 ---
