@@ -114,18 +114,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return "Не удалось открыть изображение: файл не распознан как картинка (${bytes.size} Б)"
         }
 
-        val variants = buildVariants(bitmap)
-        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height}, вариантов ${variants.size}")
-
+        val variants = variantSequence(bitmap)
+        var tried = 0
         var raw: String? = null
-        for ((index, image) in variants.withIndex()) {
+        for (image in variants) {
+            tried++
             raw = scanForMigrationUri(image)
-            Log.i(TAG, "вариант ${index + 1} из ${variants.size}: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
+            Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
             if (raw != null) break
         }
+        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height}, проверено вариантов $tried")
         if (raw == null) {
             return "QR-код переноса не найден: картинка ${bitmap.width}x${bitmap.height}, " +
-                "проверено вариантов ${variants.size}. Нужен исходный скриншот без пересылки в мессенджере"
+                "проверено вариантов $tried. Нужен исходный скриншот без пересылки в мессенджере"
         }
 
         val payload = runCatching { GoogleAuthMigration.parse(raw) }
@@ -177,57 +178,61 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Готовит несколько вариантов одной картинки для детектора.
+     * Готовит варианты одной картинки для детектора — последовательно, по одному в памяти.
      *
-     * Экранные снимки приходят мелкими (у нас был 238x236 — меньше порога детектора),
-     * размытыми и обрезанными в край. Поэтому: увеличиваем до 800 px, добавляем белое поле
-     * (без него детектор не находит углы кода) и пробуем бинаризацию по Оцу. Порядок — от
-     * «как есть» к «обработанной»: если код читается сразу, лишняя работа не делается.
+     * Экранные снимки приходят мелкими (проверенный образец — 238×236), размытыми и
+     * обрезанными в край. Поэтому предлагаем: как есть; каждый целевой размер с белым полем
+     * (без него детектор не находит углы кода); то же после бинаризации по Оцу. Порядок — от
+     * дешёвого к обработанному: если код читается сразу, лишняя работа не делается.
      *
      * Формат пикселей обязан быть ARGB_8888 — ML Kit отвергает bitmap в другом формате,
-     * а декодер JPEG/RGB_565 его как раз и выдаёт.
+     * а декодер JPEG отдаёт RGB_565. Последовательность, а не список, потому что каждый
+     * увеличенный вариант — это мегабайты пикселей, и держать их все разом незачем.
      */
-    private fun buildVariants(bitmap: Bitmap): List<InputImage> {
+    private fun variantSequence(bitmap: Bitmap): Sequence<InputImage> = sequence {
         val upright = if (bitmap.config == Bitmap.Config.ARGB_8888) {
             bitmap
         } else {
             bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
         }
 
+        yield(InputImage.fromBitmap(upright, 0))
+
         val longest = maxOf(upright.width, upright.height).coerceAtLeast(1)
-        val scale = ImagePrep.upscaleTarget(longest)
-        val base = if (scale > 1f) {
-            Bitmap.createScaledBitmap(
-                upright,
-                (upright.width * scale).toInt().coerceAtLeast(1),
-                (upright.height * scale).toInt().coerceAtLeast(1),
-                true,
-            )
-        } else {
-            upright
+        for (scale in ImagePrep.upscaleTargets(longest)) {
+            val base = if (scale > 1f) {
+                Bitmap.createScaledBitmap(
+                    upright,
+                    (upright.width * scale).toInt().coerceAtLeast(1),
+                    (upright.height * scale).toInt().coerceAtLeast(1),
+                    true,
+                )
+            } else {
+                upright
+            }
+
+            val pixels = IntArray(base.width * base.height)
+            base.getPixels(pixels, 0, base.width, 0, 0, base.width, base.height)
+
+            // Увеличенный, но необработанный вариант: на проверенном образце выигрыш дало
+            // именно чистое ×4 без белого поля, поэтому пробуем и его.
+            yield(InputImage.fromBitmap(base, 0))
+
+            val gray = ImagePrep.luminance(pixels)
+            val pad = maxOf(8, minOf(base.width, base.height) / 12)
+            val padded = ImagePrep.addWhiteBorder(gray, base.width, base.height, pad)
+            val pw = base.width + pad * 2
+            val ph = base.height + pad * 2
+
+            fun asImage(px: IntArray): InputImage {
+                val out = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
+                out.setPixels(px, 0, pw, 0, 0, pw, ph)
+                return InputImage.fromBitmap(out, 0)
+            }
+
+            yield(asImage(padded))
+            yield(asImage(ImagePrep.binarize(padded, ImagePrep.otsuThreshold(padded))))
         }
-
-        val pixels = IntArray(base.width * base.height)
-        base.getPixels(pixels, 0, base.width, 0, 0, base.width, base.height)
-
-        val gray = ImagePrep.luminance(pixels)
-        val pad = maxOf(8, minOf(base.width, base.height) / 12)
-        val padded = ImagePrep.addWhiteBorder(gray, base.width, base.height, pad)
-        val binary = ImagePrep.binarize(padded, ImagePrep.otsuThreshold(padded))
-        val pw = base.width + pad * 2
-        val ph = base.height + pad * 2
-
-        fun asImage(px: IntArray, w: Int, h: Int): InputImage {
-            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            out.setPixels(px, 0, w, 0, 0, w, h)
-            return InputImage.fromBitmap(out, 0)
-        }
-
-        return listOf(
-            InputImage.fromBitmap(base, 0),
-            asImage(padded, pw, ph),
-            asImage(binary, pw, ph),
-        )
     }
 
     /** Runs the ML Kit scan over a still image and returns the migration URI, if there is one. */

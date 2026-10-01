@@ -24,8 +24,9 @@ android {
         applicationId = "com.mikhail.authenticator"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -100,4 +101,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+
+    // Инструментальные тесты: весь путь импорта от картинки до базы, включая ML Kit,
+    // который на JVM не живёт. Запускаются на устройстве, картинка передаётся аргументом.
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

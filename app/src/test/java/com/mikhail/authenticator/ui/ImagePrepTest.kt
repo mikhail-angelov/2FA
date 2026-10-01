@@ -66,26 +66,31 @@ class ImagePrepTest {
     }
 
     @Test
-    fun `мелкий снимок увеличивается до 1600 px`() {
-        assertEquals(1600f / 238f, ImagePrep.upscaleTarget(238), 0.001f)
+    fun `мелкий снимок увеличивается до обоих целевых размеров`() {
+        assertEquals(listOf(952f / 238f, 1600f / 238f), ImagePrep.upscaleTargets(238))
     }
 
     @Test
     fun `увеличения вдвое не хватает — проверено на живом образце 238 px`() {
         // 476 px — это ровно то, что получалось бы при вдвое меньшем масштабе, и код на нём
-        // ещё не читается; значит целевой коэффициент обязан быть больше двух.
-        assertTrue("коэффициент должен быть > 2", ImagePrep.upscaleTarget(238) > 2f)
+        // ещё не читается; значит наименьший целевой коэффициент обязан быть больше двух.
+        assertTrue("наименьший коэффициент должен быть > 2", ImagePrep.upscaleTargets(238).min() > 2f)
     }
 
     @Test
     fun `крупные картинки не растягиваются`() {
-        assertEquals(1f, ImagePrep.upscaleTarget(1600), 0.001f)
-        assertEquals(1f, ImagePrep.upscaleTarget(4000), 0.001f)
+        assertEquals(listOf(1f), ImagePrep.upscaleTargets(1600))
+        assertEquals(listOf(1f), ImagePrep.upscaleTargets(4000))
+    }
+
+    @Test
+    fun `средняя картинка доводится только до большего размера`() {
+        assertEquals(listOf(1600f / 1000f), ImagePrep.upscaleTargets(1000))
     }
 
     @Test
     fun `нулевой размер не приводит к делению на ноль`() {
-        assertEquals(1f, ImagePrep.upscaleTarget(0), 0.001f)
+        assertEquals(listOf(1f), ImagePrep.upscaleTargets(0))
     }
 
     @Test
