@@ -1,0 +1,53 @@
+[versions]
+# Toolchain — the set proven to build on this box (android-apk-build skill).
+#  - AGP 9.1.0 requires Gradle 9.3.1+ (see the wrapper: 9.6.1).
+#  - AGP 9 uses its built-in Kotlin, hence no kotlin-android plugin; the
+#    kotlin.plugin.compose / kotlin.plugin.serialization / ksp plugins still apply.
+agp = "9.1.0"
+kotlin = "2.3.10"
+ksp = "2.3.10"
+coreKtx = "1.16.0"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2025.12.01"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+# App dependencies — deliberately few: database, QR, icons, nothing else.
+room = "2.8.5"
+mlkitBarcode = "17.3.0"
+camera = "1.5.0"
+coil = "2.6.0"
+# Test
+junit = "4.13.2"
+
+[libraries]
+core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
+coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
+room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+mlkit-barcode = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkitBarcode" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camera" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "camera" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

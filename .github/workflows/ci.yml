@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      # compileSdk 37 is new enough that it is not in the runner image yet: install it from
+      # the preview channel and add the alias AGP looks for (android-37 vs android-37.0).
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER=$(ls -d $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -1)
+          yes | "$SDKMANAGER" --channel=3 "platforms;android-37.0" "build-tools;37.0.0" || true
+          if [ -d "$ANDROID_HOME/platforms/android-37.0" ]; then
+            ln -sfn android-37.0 "$ANDROID_HOME/platforms/android-37"
+          fi
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
