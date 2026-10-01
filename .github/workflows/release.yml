@@ -93,6 +93,17 @@ jobs:
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --console=plain
 
+      # Карта переименований R8. Без неё стек из релизной сборки не расшифровать: в сообщении
+      # с телефона класс выглядит как `bv3`, а номер строки относится к исходному файлу. Кладём
+      # всегда, в том числе при падении сборки — именно тогда она нужнее всего.
+      - name: Upload the R8 mapping
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: r8-mapping-${{ github.ref_name }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
       - name: Verify signature
         run: |
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
