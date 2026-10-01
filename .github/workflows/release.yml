@@ -45,13 +45,45 @@ jobs:
             echo "::warning::KEYSTORE_BASE64 is not set — the release APK will be unsigned."
             exit 0
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
-          cat > keystore.properties <<EOF
-          storeFile=release.jks
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
+          # A pasted trailing newline or space is the classic cause of
+          # "keystore password was incorrect": trim every value before use.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+          STORE_PW="$(trim "${KEYSTORE_PASSWORD:-}")"
+          KEY_PW="$(trim "${KEY_PASSWORD:-}")"
+          ALIAS="$(trim "${KEY_ALIAS:-}")"
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$STORE_PW"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$KEY_PW"
+          } > keystore.properties
+          echo "::notice::keystore restored ($(stat -c%s release.jks) bytes), alias '$ALIAS'"
+
+      # Fails here with a plain explanation, instead of two minutes later inside R8 packaging
+      # where the only clue is a KeytoolException from Gradle.
+      - name: Check that the password opens the keystore
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ ! -s release.jks ]; then
+            echo "::warning::no keystore was restored — signing will be skipped"; exit 0
+          fi
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+          STORE_PW="$(trim "${KEYSTORE_PASSWORD:-}")"
+          ALIAS="$(trim "${KEY_ALIAS:-}")"
+          if ! keytool -list -keystore release.jks -storepass "$STORE_PW" >/dev/null 2>&1; then
+            echo "::error::KEYSTORE_PASSWORD does not open the keystore uploaded as KEYSTORE_BASE64 — they must come from the same file (and without a trailing newline)."
+            exit 1
+          fi
+          echo "::notice::store password is correct"
+          if ! keytool -list -keystore release.jks -storepass "$STORE_PW" -alias "$ALIAS" >/dev/null 2>&1; then
+            echo "::error::this keystore has no entry named '$ALIAS' (KEY_ALIAS). Use one of the names that 'keytool -list' prints for this file."
+            exit 1
+          fi
+          echo "::notice::alias '$ALIAS' is present in the keystore"
 
       # The unit tests are variant-independent; AGP only creates a test<variant>UnitTest task
       # for variants that have their own test source set, so debug is the one that exists.
