@@ -1,6 +1,8 @@
 package com.mikhail.authenticator.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
@@ -95,13 +98,54 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         else scope.launch { snackbarHostState.showSnackbar("Без доступа к камере можно ввести ключ вручную") }
     }
 
+    /** Текст неудачного импорта: показывается окном, пока пользователь сам его не закроет. */
+    var importProblem by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * Переслать текст в любой мессенджер: снимки экрана в приложении запрещены, так что это
+     * единственный способ унести сообщение об ошибке наружу и показать его целиком.
+     */
+    fun shareText(text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        runCatching { context.startActivity(Intent.createChooser(intent, "Переслать сообщение")) }
+    }
+
     /**
      * Google Authenticator import: the system PhotoPicker hands back one image URI, so the app
      * needs no READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE permission at all.
      */
     val screenshotPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        scope.launch { snackbarHostState.showSnackbar(viewModel.importFromImage(uri)) }
+        scope.launch {
+            val message = viewModel.importFromImage(uri)
+            // Об успехе сообщает всплывашка, а неудачу показываем окном: её нужно прочитать
+            // целиком и унести из приложения (скриншоты здесь запрещены), а всплывашка исчезает
+            // сама и обрезает длинный текст. Окно закрывается только кнопкой.
+            if (message.startsWith("Импортировано")) {
+                snackbarHostState.showSnackbar(message)
+            } else {
+                importProblem = message
+            }
+        }
+    }
+
+    importProblem?.let { text ->
+        AlertDialog(
+            onDismissRequest = { },
+            icon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) },
+            title = { Text("Импорт из картинки не удался") },
+            text = { SelectionContainer { Text(text) } },
+            confirmButton = { TextButton(onClick = { importProblem = null }) { Text("Закрыть") } },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(text)) }) { Text("Скопировать") }
+                    TextButton(onClick = { shareText(text) }) { Text("Поделиться") }
+                }
+            },
+        )
     }
 
     /** Copy the code and wipe the clipboard 30 s later (spec §3.Г). */
