@@ -102,6 +102,16 @@ which is what makes an update install over an existing copy. Check a downloaded 
   without inverting the picture, and the white border keeping the code and rejecting mismatched
   dimensions instead of silently corrupting the bitmap.
 
+**Проверка на живом образце.** Скриншот QR в репозиторий не кладётся — в нём настоящие
+секреты. Поэтому обе проверки берут картинку снаружи:
+
+- `ImagePrepSampleTest` (JVM) читает файл по переменной `OTP_SAMPLE`, прогоняет его через
+  подготовку и выгружает варианты по `OTP_SAMPLE_OUT`; без переменной тест пропускается.
+  Пример: `OTP_SAMPLE=/path/qr.jpg OTP_SAMPLE_OUT=/tmp/qrcheck ./gradlew :app:testDebugUnitTest`
+- `QrSampleImportTest` (инструментальный) прогоняет тот же файл через весь путь импорта,
+  включая ML Kit, который на JVM не живёт. Путь передаётся аргументом инструментации:
+  `adb shell am instrument -w -e qrFile /data/local/tmp/qr.jpg com.mikhail.authenticator.test/androidx.test.runner.AndroidJUnitRunner`
+
 Network is not needed for the tests.
 
 ## Releases
