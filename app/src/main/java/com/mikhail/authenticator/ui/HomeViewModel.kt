@@ -18,6 +18,7 @@ import com.mikhail.authenticator.migration.GoogleAuthMigration
 import com.mikhail.authenticator.migration.MigrationImport
 import com.mikhail.authenticator.otp.OtpAccount
 import com.mikhail.authenticator.vault.VaultCodec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,8 +82,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Reads a Google Authenticator transfer QR out of a picked image and imports it.
      * @return the message to show the user.
+     *
+     * Вызов приходит из UI обычным `launch` на главном потоке, поэтому исключение отсюда
+     * раньше роняло приложение целиком — в момент, когда пользователь только выбрал файл.
+     * Теперь наружу всегда уходит сообщение с причиной, а причина остаётся в logcat.
      */
-    suspend fun importFromImage(uri: Uri): String {
+    suspend fun importFromImage(uri: Uri): String = try {
+        importPickedImage(uri)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Log.w(TAG, "импорт сорвался на $uri", t)
+        "Импорт не удался: ${t::class.simpleName}: ${t.message}"
+    }
+
+    private suspend fun importPickedImage(uri: Uri): String {
         val context = getApplication<Application>()
 
         // Изображение читаем сами и в байтах. Провайдер, отдавший картинку, нам не подчиняется:
@@ -114,19 +128,47 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return "Не удалось открыть изображение: файл не распознан как картинка (${bytes.size} Б)"
         }
 
-        val variants = variantSequence(bitmap)
+        // Подготовка вариантов — самая хрупкая часть: увеличение картинки требует памяти,
+        // а детектор принимает только ARGB_8888 и бросает исключение прямо при создании
+        // объекта, то есть до своих слушателей. Раньше это уходило мимо всех проверок и
+        // роняло приложение в момент выбора файла. Теперь причина видна в logcat (тег OtpImport)
+        // и в сообщении, а подготовка идёт вне главного потока.
         var tried = 0
         var raw: String? = null
-        for (image in variants) {
-            tried++
-            raw = scanForMigrationUri(image)
-            Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
-            if (raw != null) break
+        var failure: Throwable? = null
+        try {
+            withContext(Dispatchers.Default) {
+                val iterator = variantSequence(bitmap).iterator()
+                while (iterator.hasNext()) {
+                    val image = try {
+                        iterator.next()
+                    } catch (t: Throwable) {
+                        failure = t
+                        Log.w(TAG, "вариант ${tried + 1} не подготовился", t)
+                        break
+                    }
+                    tried++
+                    try {
+                        raw = scanForMigrationUri(image)
+                    } catch (t: Throwable) {
+                        failure = t
+                        Log.w(TAG, "вариант $tried сорвался", t)
+                        continue
+                    }
+                    Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
+                    if (raw != null) break
+                }
+            }
+        } catch (t: Throwable) {
+            failure = t
+            Log.w(TAG, "подготовка вариантов сорвалась", t)
         }
         Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height}, проверено вариантов $tried")
         if (raw == null) {
+            val reason = failure
+            val why = reason?.let { " Причина: ${it::class.simpleName}: ${it.message}" } ?: ""
             return "QR-код переноса не найден: картинка ${bitmap.width}x${bitmap.height}, " +
-                "проверено вариантов $tried. Нужен исходный скриншот без пересылки в мессенджере"
+                "проверено вариантов $tried.$why Нужен исходный скриншот без пересылки в мессенджере"
         }
 
         val payload = runCatching { GoogleAuthMigration.parse(raw) }
