@@ -3,6 +3,7 @@ package com.mikhail.authenticator.ui
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -163,12 +164,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             failure = t
             Log.w(TAG, "подготовка вариантов сорвалась", t)
         }
-        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height}, проверено вариантов $tried")
+        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height} (${bitmap.config}), проверено вариантов $tried")
         if (raw == null) {
             val reason = failure
-            val why = reason?.let { " Причина: ${it::class.simpleName}: ${it.message}" } ?: ""
+            // Место сбоя обязательно: без него сообщение называет только класс исключения, и
+            // искать причину приходится заново. Первой строки стека для этого достаточно.
+            val where = reason?.stackTrace?.firstOrNull()?.let { " в $it" } ?: ""
+            val why = reason?.let { " Причина: ${it::class.simpleName}: ${it.message}$where" } ?: ""
             return "QR-код переноса не найден: картинка ${bitmap.width}x${bitmap.height}, " +
-                "проверено вариантов $tried.$why Нужен исходный скриншот без пересылки в мессенджере"
+                "формат ${bitmap.config}, проверено вариантов $tried.$why " +
+                "Нужен исходный скриншот без пересылки в мессенджере"
         }
 
         val payload = runCatching { GoogleAuthMigration.parse(raw) }
@@ -220,6 +225,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Приводит картинку к программному ARGB_8888 — единственному формату, который принимает
+     * детектор.
+     *
+     * Раньше здесь стояло «bitmap.copy(...) ?: bitmap»: при неудаче копирования наружу уходил
+     * исходный bitmap неподходящего формата, и приложение падало уже внутри детектора, в самом
+     * первом варианте (в сообщении это видно как «проверено вариантов 0», а причина —
+     * NullPointerException с getClass() на null). Теперь копия не удалась — рисуем пиксели в
+     * новый bitmap через Canvas: этот путь не возвращает null.
+     */
+    private fun toArgb8888(source: Bitmap): Bitmap {
+        if (!source.isRecycled && source.config == Bitmap.Config.ARGB_8888) return source
+        val width = source.width.coerceAtLeast(1)
+        val height = source.height.coerceAtLeast(1)
+        val copied = runCatching { source.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        if (copied != null) return copied
+        Log.w(TAG, "копия ${source.config} → ARGB_8888 не удалась, рисуем пиксели заново")
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(source, 0f, 0f, null)
+        return out
+    }
+
+    /**
      * Готовит варианты одной картинки для детектора — последовательно, по одному в памяти.
      *
      * Экранные снимки приходят мелкими (проверенный образец — 238×236), размытыми и
@@ -232,11 +259,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      * увеличенный вариант — это мегабайты пикселей, и держать их все разом незачем.
      */
     private fun variantSequence(bitmap: Bitmap): Sequence<InputImage> = sequence {
-        val upright = if (bitmap.config == Bitmap.Config.ARGB_8888) {
-            bitmap
-        } else {
-            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
-        }
+        val upright = toArgb8888(bitmap)
 
         yield(InputImage.fromBitmap(upright, 0))
 
