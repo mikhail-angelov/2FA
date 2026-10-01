@@ -1,6 +1,9 @@
 package com.mikhail.authenticator.ui
 
 import android.app.Application
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -79,7 +82,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      */
     suspend fun importFromImage(uri: Uri): String {
         val context = getApplication<Application>()
-        val image = runCatching { withContext(Dispatchers.IO) { InputImage.fromFilePath(context, uri) } }
+        val image = runCatching { withContext(Dispatchers.IO) { loadImage(context, uri) } }
             .getOrElse { return "Не удалось открыть изображение" }
 
         val raw = scanForMigrationUri(image)
@@ -131,6 +134,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             if (pendingSkippedHotp > 0) append(". Пропущено счётчиковых (HOTP): $pendingSkippedHotp")
             if (pendingSkippedUnsupported > 0) append(". Пропущено неподдерживаемых: $pendingSkippedUnsupported")
         }
+    }
+
+    /**
+     * Decodes the picked image here instead of calling [InputImage.fromFilePath]. The file-path
+     * variant resolves a `content://` URI through MediaStore's `DATA` column, which the system
+     * PhotoPicker deliberately does not populate — it fails on exactly the screenshots this
+     * feature exists for. Reading the stream ourselves works for any provider the user picks from.
+     *
+     * A small crop also loses the code: below roughly 600 px the detector starts missing QRs, so
+     * a small bitmap is scaled up instead of handed over as is.
+     */
+    private fun loadImage(context: Context, uri: Uri): InputImage {
+        val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+            ?: throw IllegalStateException("изображение не читается")
+        val longest = maxOf(bitmap.width, bitmap.height)
+        val scaled = if (longest in 1 until 600) {
+            val k = 600f / longest
+            Bitmap.createScaledBitmap(bitmap, (bitmap.width * k).toInt(), (bitmap.height * k).toInt(), true)
+        } else {
+            bitmap
+        }
+        return InputImage.fromBitmap(scaled, 0)
     }
 
     /** Runs the ML Kit scan over a still image and returns the migration URI, if there is one. */
