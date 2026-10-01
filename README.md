@@ -65,7 +65,18 @@ keyPassword=…
 ```
 
 Without that file, `assembleRelease` produces an unsigned APK. CI does the same thing from
-GitHub Secrets; see `.github/workflows/release.yml`.
+GitHub Secrets; see `.github/workflows/release.yml`. The workflow checks the keystore against
+its password before it builds, so a mismatched secret — or one pasted with a trailing newline —
+fails in seconds instead of surfacing as a `KeytoolException` inside packaging.
+
+Every release is signed with the same key. Its certificate SHA-256 digest is
+
+```
+7D:B0:97:0F:CD:38:21:7B:DA:53:25:63:E0:28:03:E9:0C:99:29:10:A5:5F:2A:7B:C3:7B:FB:9C:A9:D5:8D:01
+```
+
+which is what makes an update install over an existing copy. Check a downloaded APK with
+`apksigner verify --print-certs app-release.apk`.
 
 ## Tests
 
