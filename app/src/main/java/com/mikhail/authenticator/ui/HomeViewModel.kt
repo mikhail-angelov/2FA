@@ -1,10 +1,10 @@
 package com.mikhail.authenticator.ui
 
 import android.app.Application
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
+
+private const val TAG = "OtpImport"
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -82,14 +84,52 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      */
     suspend fun importFromImage(uri: Uri): String {
         val context = getApplication<Application>()
-        val image = runCatching { withContext(Dispatchers.IO) { loadImage(context, uri) } }
-            .getOrElse { return "Не удалось открыть изображение" }
 
-        val raw = scanForMigrationUri(image)
-            ?: return "На изображении не найден QR-код переноса Google Authenticator"
+        // Изображение читаем сами и в байтах. Провайдер, отдавший картинку, нам не подчиняется:
+        // он может не дать поток, отдать не картинку или файл, который декодер не осилит.
+        // Раньше все эти случаи превращались в одну фразу без причины — теперь причина видна
+        // и в сообщении, и в logcat (тег OtpImport).
+        val bytes = try {
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "не удалось прочитать поток $uri", e)
+            null
+        }
+        if (bytes == null || bytes.isEmpty()) {
+            Log.w(TAG, "провайдер не отдал данные: $uri")
+            return "Не удалось открыть изображение: провайдер не отдал данные"
+        }
+
+        val bitmap = try {
+            withContext(Dispatchers.IO) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+        } catch (e: Exception) {
+            Log.w(TAG, "декодер упал на ${bytes.size} Б", e)
+            null
+        }
+        if (bitmap == null) {
+            val head = bytes.take(8).joinToString(" ") { "%02x".format(it) }
+            Log.w(TAG, "не распознано как картинка: ${bytes.size} Б, начало $head")
+            return "Не удалось открыть изображение: файл не распознан как картинка (${bytes.size} Б)"
+        }
+
+        val variants = buildVariants(bitmap)
+        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height}, вариантов ${variants.size}")
+
+        var raw: String? = null
+        for ((index, image) in variants.withIndex()) {
+            raw = scanForMigrationUri(image)
+            Log.i(TAG, "вариант ${index + 1} из ${variants.size}: ${if (raw == null) "QR не найден" else "найден QR переноса"}")
+            if (raw != null) break
+        }
+        if (raw == null) {
+            return "QR-код переноса не найден: картинка ${bitmap.width}x${bitmap.height}, " +
+                "проверено вариантов ${variants.size}. Нужен исходный скриншот без пересылки в мессенджере"
+        }
 
         val payload = runCatching { GoogleAuthMigration.parse(raw) }
-            .getOrElse { return "QR-код переноса не разобрался: ${it.message}" }
+            .getOrElse { return "QR-код переноса не разобрался: ${it::class.simpleName}: ${it.message}" }
 
         val part = MigrationImport.toAccounts(payload)
         pendingSkippedHotp += part.skippedHotp
@@ -137,25 +177,57 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Decodes the picked image here instead of calling [InputImage.fromFilePath]. The file-path
-     * variant resolves a `content://` URI through MediaStore's `DATA` column, which the system
-     * PhotoPicker deliberately does not populate — it fails on exactly the screenshots this
-     * feature exists for. Reading the stream ourselves works for any provider the user picks from.
+     * Готовит несколько вариантов одной картинки для детектора.
      *
-     * A small crop also loses the code: below roughly 600 px the detector starts missing QRs, so
-     * a small bitmap is scaled up instead of handed over as is.
+     * Экранные снимки приходят мелкими (у нас был 238x236 — меньше порога детектора),
+     * размытыми и обрезанными в край. Поэтому: увеличиваем до 800 px, добавляем белое поле
+     * (без него детектор не находит углы кода) и пробуем бинаризацию по Оцу. Порядок — от
+     * «как есть» к «обработанной»: если код читается сразу, лишняя работа не делается.
+     *
+     * Формат пикселей обязан быть ARGB_8888 — ML Kit отвергает bitmap в другом формате,
+     * а декодер JPEG/RGB_565 его как раз и выдаёт.
      */
-    private fun loadImage(context: Context, uri: Uri): InputImage {
-        val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-            ?: throw IllegalStateException("изображение не читается")
-        val longest = maxOf(bitmap.width, bitmap.height)
-        val scaled = if (longest in 1 until 600) {
-            val k = 600f / longest
-            Bitmap.createScaledBitmap(bitmap, (bitmap.width * k).toInt(), (bitmap.height * k).toInt(), true)
-        } else {
+    private fun buildVariants(bitmap: Bitmap): List<InputImage> {
+        val upright = if (bitmap.config == Bitmap.Config.ARGB_8888) {
             bitmap
+        } else {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
         }
-        return InputImage.fromBitmap(scaled, 0)
+
+        val longest = maxOf(upright.width, upright.height).coerceAtLeast(1)
+        val scale = if (longest < 800) 800f / longest else 1f
+        val base = if (scale > 1f) {
+            Bitmap.createScaledBitmap(
+                upright,
+                (upright.width * scale).toInt().coerceAtLeast(1),
+                (upright.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+        } else {
+            upright
+        }
+
+        val pixels = IntArray(base.width * base.height)
+        base.getPixels(pixels, 0, base.width, 0, 0, base.width, base.height)
+
+        val gray = ImagePrep.luminance(pixels)
+        val pad = maxOf(8, minOf(base.width, base.height) / 12)
+        val padded = ImagePrep.addWhiteBorder(gray, base.width, base.height, pad)
+        val binary = ImagePrep.binarize(padded, ImagePrep.otsuThreshold(padded))
+        val pw = base.width + pad * 2
+        val ph = base.height + pad * 2
+
+        fun asImage(px: IntArray, w: Int, h: Int): InputImage {
+            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            out.setPixels(px, 0, w, 0, 0, w, h)
+            return InputImage.fromBitmap(out, 0)
+        }
+
+        return listOf(
+            InputImage.fromBitmap(base, 0),
+            asImage(padded, pw, ph),
+            asImage(binary, pw, ph),
+        )
     }
 
     /** Runs the ML Kit scan over a still image and returns the migration URI, if there is one. */
@@ -174,7 +246,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                             ?.rawValue
                         if (continuation.isActive) continuation.resume(value)
                     }
-                    .addOnFailureListener { if (continuation.isActive) continuation.resume(null) }
+                    .addOnFailureListener { error ->
+                        Log.w(TAG, "детектор отказал", error)
+                        if (continuation.isActive) continuation.resume(null)
+                    }
             }
         } finally {
             scanner.close()

@@ -97,6 +97,10 @@ which is what makes an update install over an existing copy. Check a downloaded 
   by byte straight from the schema, so the reader cannot be validated by the writer that
   produced it; the rest cover the RFC key mapping to its known Base32 string, percent-encoded
   payloads (where a naive URL decoder breaks on `+`), unknown fields, and truncated input.
+- `ImagePrepTest` — preparing a screenshot for the detector: luminance, the Otsu threshold
+  landing between the two modes of a bimodal image, binarisation producing exactly two colours
+  without inverting the picture, and the white border keeping the code and rejecting mismatched
+  dimensions instead of silently corrupting the bitmap.
 
 Network is not needed for the tests.
 
