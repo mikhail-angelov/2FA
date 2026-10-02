@@ -8,13 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -29,8 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -40,16 +41,22 @@ import com.mikhail.authenticator.data.StoredAccount
 import com.mikhail.authenticator.icons.IssuerIcons
 
 /**
- * One account card: the issuer icon in a circular tile, the current code, and the 30-second
- * countdown drawn as a ring around that tile. Tapping anywhere copies the code (spec §2.3).
+ * One account card, two rows (spec §2.3): the issuer name owns the top row across the full
+ * width, the bottom row carries the icon inside the countdown ring next to the current code.
+ * Tapping anywhere copies the code.
  *
- * The ring is deliberately not the only expiry cue: from ten seconds left the remaining
- * seconds appear next to the name and the ring turns amber, from five — red, so the warning
- * never rests on colour alone.
+ * The seconds appear next to the name only in the last ten seconds, but their slot is reserved
+ * at all times — the top row keeps the same length whether they are shown or not, so nothing
+ * jumps and nothing wraps when they arrive. The ring turns amber at ten seconds and red at
+ * five, and the seconds are printed next to the name: the warning never rests on colour alone.
+ *
+ * The code is never truncated: its size is fitted to the width actually left in the bottom row
+ * **and divided by the system font scale**, because `maxWidth` arrives in dp while text is
+ * drawn in sp. Without that division a phone with a larger system font overflows the card and
+ * the trailing digits disappear.
  *
  * [compact] — режим узкой карточки (две колонки в портрете, ландшафт): плитка и кольцо
- * уменьшаются, строка логина скрывается, имя подрезается многоточием. Код не обрезается
- * никогда: кегль подбирается по фактической ширине (см. ниже).
+ * уменьшаются, строка логина скрывается, имя подрезается многоточием.
  */
 @Composable
 fun OtpCard(
@@ -78,88 +85,96 @@ fun OtpCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(if (compact) 10.dp else 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
         ) {
-            // Кольцо вокруг иконки: отсчёт висит на том элементе, на который глаз и так
-            // смотрит, и больше ничего на карточке его не тащит.
-            Box(
-                modifier = Modifier.size(if (compact) 44.dp else 52.dp),
-                contentAlignment = Alignment.Center,
+            // Верхняя строка: имя на всю ширину карточки, место под секунды зарезервировано
+            // всегда — длина строки не меняется, когда секунды появляются.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator(
-                    progress = { animatedFraction },
-                    modifier = Modifier.fillMaxSize(),
-                    color = ringColor,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant,
-                    strokeWidth = if (compact) 3.dp else 4.dp,
-                    strokeCap = StrokeCap.Round,
+                Text(
+                    text = account.issuer,
+                    style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                Box(
-                    modifier = Modifier
-                        .size(if (compact) 34.dp else 42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    IssuerIcon(
-                        issuer = account.issuer,
-                        monogramSize = if (compact) 12.sp else 18.sp,
-                        modifier = Modifier.size(if (compact) 22.dp else 28.dp),
-                    )
-                }
+                Text(
+                    text = if (soon) "$secondsRemaining с" else "",
+                    color = ringColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (compact) 11.sp else 12.sp,
+                    maxLines = 1,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.widthIn(min = if (compact) 30.dp else 34.dp),
+                )
             }
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = if (compact) 10.dp else 14.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            // В узкой карточке логин скрыт целиком: режем имя, а не код.
+            if (!compact) {
+                Text(
+                    text = account.account,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Нижняя строка: кольцо отсчёта вокруг иконки и сам код.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = account.issuer,
-                        style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                Box(
+                    modifier = Modifier.size(if (compact) 30.dp else 38.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        progress = { animatedFraction },
+                        modifier = Modifier.fillMaxSize(),
+                        color = ringColor,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        strokeWidth = if (compact) 2.5.dp else 3.dp,
+                        strokeCap = StrokeCap.Round,
                     )
-                    // Секунды подают голос только на последних десяти: всё остальное время
-                    // говорит кольцо.
-                    if (soon) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "$secondsRemaining с",
-                            color = ringColor,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = if (compact) 11.sp else 12.sp,
+                    Box(
+                        modifier = Modifier
+                            .size(if (compact) 22.dp else 28.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        IssuerIcon(
+                            issuer = account.issuer,
+                            monogramSize = if (compact) 9.sp else 12.sp,
+                            modifier = Modifier.size(if (compact) 14.dp else 18.dp),
                         )
                     }
                 }
-                // В узкой карточке логин скрыт целиком: режем имя, а не код.
-                if (!compact) {
-                    Text(
-                        text = account.account,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                // Кегль кода подбирается по фактической ширине места. Моноширинная цифра
-                // занимает ~0.6 em, берём 0.64 с запасом, поэтому «382 910» ужимается,
-                // но не обрезается. Потолок 28/32 sp, пол 12 sp — читаемо и в двух колонках.
-                BoxWithConstraints {
+
+                // Кегль подбирается по фактически оставшейся ширине в dp и делится на системный
+                // масштаб шрифта: текст рисуется в sp, а maxWidth приходит в dp — без деления
+                // цифры уезжают за край карточки на телефоне с крупным системным шрифтом.
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = if (compact) 8.dp else 10.dp),
+                ) {
                     val formatted = formatCode(code)
-                    val fit = maxWidth.value / (0.64f * formatted.length.coerceAtLeast(1))
+                    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(0.5f)
+                    val fit = maxWidth.value / (0.62f * formatted.length.coerceAtLeast(1)) / fontScale
                     Text(
                         text = formatted,
                         fontSize = fit
-                            .coerceAtMost(if (compact) 28f else 32f)
-                            .coerceAtLeast(12f)
+                            .coerceAtMost(if (compact) 24f else 28f)
+                            .coerceAtLeast(11f)
                             .sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
