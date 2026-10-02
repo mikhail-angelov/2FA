@@ -50,6 +50,7 @@ fun LazyAccountGrid(
                 code = code,
                 secondsRemaining = remaining,
                 modifier = Modifier.padding(0.dp),
+                compact = columns > 1,
                 onCopy = { onCopy(code) },
                 onLongPress = { onLongPress(account) },
             )
