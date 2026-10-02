@@ -20,11 +20,13 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mikhail.authenticator.crypto.OtpAlgorithm
 import com.mikhail.authenticator.crypto.Totp
+import com.mikhail.authenticator.data.StoredAccount
 import com.mikhail.authenticator.otp.OtpAccount
 import com.mikhail.authenticator.otp.OtpAuthUri
 import kotlinx.coroutines.delay
@@ -89,6 +92,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     var scanning by remember { mutableStateOf(false) }
     var showManualForm by remember { mutableStateOf(false) }
     var vaultDialog by remember { mutableStateOf<VaultDialog?>(null) }
+    var longPressed by remember { mutableStateOf<StoredAccount?>(null) }
 
     // One clock for the whole list: every code and ring advances together, once a second.
     var nowSeconds by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
@@ -215,14 +219,46 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     columns = columns,
                     nowSeconds = nowSeconds,
                     onCopy = ::copyCode,
-                    onLongPress = { account ->
-                        scope.launch {
-                            val result = snackbarHostState.showSnackbar("Удалить ${account.issuer}?", actionLabel = "Удалить")
-                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) viewModel.delete(account)
-                        }
-                    },
+                    onLongPress = { account -> longPressed = account },
                 )
             }
+        }
+    }
+
+    // Долгое нажатие открывает действия по аккаунту. Раньше оно сразу предлагало удаление, и
+    // промах пальцем вёл к нему же; теперь между поднятием и удалением стоит выбор.
+    val pressed = longPressed
+    if (pressed != null) {
+        ModalBottomSheet(
+            onDismissRequest = { longPressed = null },
+            sheetState = rememberModalBottomSheetState(),
+        ) {
+            ListItem(
+                headlineContent = { Text("Поднять наверх") },
+                supportingContent = { Text("Показывать первым в списке") },
+                leadingContent = { Icon(Icons.Filled.VerticalAlignTop, contentDescription = null) },
+                modifier = Modifier.clickableItem {
+                    viewModel.moveToTop(pressed)
+                    longPressed = null
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Удалить") },
+                supportingContent = { Text(pressed.issuer) },
+                leadingContent = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                modifier = Modifier.clickableItem {
+                    longPressed = null
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            "Удалить ${pressed.issuer}?",
+                            actionLabel = "Удалить",
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            viewModel.delete(pressed)
+                        }
+                    }
+                },
+            )
         }
     }
 

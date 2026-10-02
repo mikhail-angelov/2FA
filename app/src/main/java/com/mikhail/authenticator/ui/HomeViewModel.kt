@@ -79,6 +79,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.delete(entry) }
     }
 
+    /** Поднять аккаунт в начало списка — это и есть его приоритет. */
+    fun moveToTop(entry: StoredAccount) {
+        viewModelScope.launch { repository.moveToTop(entry) }
+    }
+
     /** Encrypts every account into the export file text (spec §3.В). */
     suspend fun export(password: CharArray): String =
         VaultCodec.encode(repository.exportEntries(), password)

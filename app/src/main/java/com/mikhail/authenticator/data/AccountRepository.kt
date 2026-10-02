@@ -40,6 +40,19 @@ class AccountRepository(
     }
 
     /**
+     * Поднимает аккаунт в начало списка: ставит ему порядок меньше наименьшего в базе.
+     *
+     * Отдельной колонки-приоритета не заводим: список и так сортируется по `sortOrder`, а
+     * место в нём — это и есть приоритет. Порядок занимают по мере добавления (0, 1, 2…),
+     * поэтому «первым» = «меньше всех», и повторное поднятие разных аккаунтов выстраивает их
+     * сверху вниз в порядке поднятия.
+     */
+    suspend fun moveToTop(entry: StoredAccount) {
+        val lowest = dao.minSortOrder() ?: 0
+        dao.setSortOrder(entry.id, lowest - 1)
+    }
+
+    /**
      * Adds accounts from a vault payload.
      * @param skipDuplicates when true, accounts already present (by secret) are ignored.
      * @return how many accounts were actually added.

@@ -5,10 +5,17 @@ secrets that never touch the disk in the clear.
 
 Kotlin · Jetpack Compose · Room · ML Kit (QR) · CameraX · Coil — nothing else.
 
+<p align="center">
+  <img src="docs/screenshot.png" width="320"
+       alt="Account list: two columns of cards, each with the issuer, the account and the six-digit code">
+</p>
+
 ## What it does
 
-- **One screen.** A searchable list of accounts; each card shows the issuer, the account, the
+- **One screen.** The list of accounts; each card shows the issuer, the account, the
   current six-digit code and a 30-second ring. Tap a card to copy the code.
+- **Raise what you use.** Long-press a card to move it to the top of the list, so the accounts
+  you reach for most sit first and stay there across restarts. The same menu deletes.
 - **Add by QR or by hand.** Scanning reads `otpauth://totp/…` and rejects anything that is not
   a TOTP URI instead of guessing. Manual entry takes issuer, account and Base32 secret.
 - **Import from a Google Authenticator screenshot.** Pick a screenshot, the QR is read with
@@ -17,11 +24,13 @@ Kotlin · Jetpack Compose · Room · ML Kit (QR) · CameraX · Coil — nothing 
   collected across screenshots and only written when the last part arrives; HOTP and MD5
   entries are skipped and counted rather than imported as accounts that would never produce a
   matching code. No media permission is needed — the system PhotoPicker returns one image.
-- **Adaptive grid.** One column in portrait, two in landscape, on tablets and foldables.
+- **Adaptive grid.** One or two columns, chosen in settings — two always in landscape, on
+  tablets and foldables.
 - **Encrypted export/import.** A password-protected JSON file written through the Storage
   Access Framework — the user picks the folder, the app never asks for broad storage access.
 - **Frozen for screenshots.** `FLAG_SECURE` keeps codes out of screenshots and the recents
-  thumbnail; the clipboard is wiped 30 s after a copy.
+  thumbnail; the clipboard is wiped 30 s after a copy. The screen is kept awake while the app
+  is in the foreground, so codes stay readable while you type them elsewhere.
 
 ## Security model, in four lines
 

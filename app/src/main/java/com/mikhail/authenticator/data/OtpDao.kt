@@ -40,4 +40,11 @@ interface OtpDao {
     /** Used on import to skip accounts that are already present (same issuer+account). */
     @Query("SELECT COUNT(*) FROM accounts WHERE issuer = :issuer AND account = :account")
     suspend fun countByLabel(issuer: String, account: String): Int
+
+    /** Наименьший порядок в списке: элемент выше него встанет первым. */
+    @Query("SELECT MIN(sortOrder) FROM accounts")
+    suspend fun minSortOrder(): Int?
+
+    @Query("UPDATE accounts SET sortOrder = :order WHERE id = :id")
+    suspend fun setSortOrder(id: Long, order: Int)
 }
