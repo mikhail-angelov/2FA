@@ -24,8 +24,8 @@ android {
         applicationId = "com.mikhail.authenticator"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.0.11"
+        versionCode = 13
+        versionName = "1.0.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

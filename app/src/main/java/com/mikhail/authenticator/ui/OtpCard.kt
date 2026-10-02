@@ -1,6 +1,7 @@
 package com.mikhail.authenticator.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,14 +24,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -43,8 +50,8 @@ import com.mikhail.authenticator.icons.IssuerIcons
 /**
  * One account card (spec §2.3). The countdown ring sits **on the card's top-left rounded
  * corner** — its centre coincides with the centre of the corner arc, so the circle traces the
- * card edge instead of standing beside it — and the issuer icon lives inside the ring, one or
- * two pixels away from it. The text column keeps clear of the ring and carries the name and the
+ * card edge instead of standing beside it — and the issuer icon lives inside the ring, a single
+ * pixel away from it. The text column keeps clear of the ring and carries the name and the
  * current code, and tapping anywhere copies the code.
  *
  * The ring turns amber from ten seconds left and red from five. In the single-column layout the
@@ -55,8 +62,7 @@ import com.mikhail.authenticator.icons.IssuerIcons
  * The code is never truncated: its size is fitted to the width actually left on the line **and
  * divided by the system font scale**, because `maxWidth` arrives in dp while text is drawn in
  * sp. Without that division a phone with a larger system font overflows the card and the
- * trailing digits disappear. The monogram fallback is sized from the tile and scaled the same
- * way, so a letter fits inside the icon instead of spilling out of it.
+ * trailing digits disappear.
  *
  * [compact] — режим узкой карточки (две колонки в портрете, ландшафт): отступы плотнее, логин
  * и секунды скрыты, кегль кода чуть меньше.
@@ -75,9 +81,11 @@ fun OtpCard(
     val corner = if (compact) 14.dp else 18.dp
     val ringSize = corner * 2
     val stroke = if (compact) 2.dp else 2.5.dp
-    // Зазор между кольцом и плиткой — 1–2 px, поэтому плитка почти вплотную к окружности.
-    val gap = if (compact) 1.dp else 2.dp
-    val tileSize = ringSize - stroke * 2 - gap * 2
+    // Зазор между кольцом и плиткой считаем в пикселях, а не в dp: один dp на плотном экране
+    // превращается в два-три пикселя, и щель между кольцом и иконкой видно. Просили один
+    // пиксель — ровно один пиксель и берём.
+    val onePixel = with(LocalDensity.current) { 1.toDp() }
+    val tileSize = ringSize - stroke * 2 - onePixel * 2
 
     val fraction = (secondsRemaining.toFloat() / account.period.toFloat()).coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(targetValue = fraction, label = "period-progress")
@@ -193,7 +201,9 @@ fun OtpCard(
                 IssuerIcon(
                     issuer = account.issuer,
                     tile = tileSize,
-                    modifier = Modifier.size(tileSize * 0.72f),
+                    // Иконка меньше белой плитки ровно на пиксель с каждой стороны: белая полоска
+                    // между кольцом отсчёта и иконкой должна быть в пиксель, а не «примерно».
+                    modifier = Modifier.size(tileSize - onePixel * 2),
                 )
             }
         }
@@ -208,29 +218,51 @@ internal fun formatCode(code: String): String = when (code.length) {
 }
 
 /**
- * Favicon of the issuer when it is known and reachable, otherwise a monogram. Both are sized
- * from [tile] so the fallback letter stays inside the tile whatever the system font scale is.
+ * Favicon of the issuer when it is known and reachable, otherwise a monogram.
+ *
+ * The monogram is **measured and fitted**, not computed from a formula: a formula gave either a
+ * letter too small to read or one spilling over the tile edge, because the result depends on the
+ * font itself, on the system font scale and on how many letters the monogram holds. The glyph is
+ * measured at a reference size, the scale that makes it fill most of [tile] is derived from that
+ * measurement, and the result is centred in the tile by its own measured box.
  */
 @Composable
 private fun IssuerIcon(issuer: String, tile: Dp, modifier: Modifier = Modifier) {
     val fallback: @Composable () -> Unit = {
         val monogram = IssuerIcons.monogram(issuer)
-        val chars = monogram.length.coerceAtLeast(1)
-        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(0.5f)
-        val fontSize = (tile.value * 0.52f / chars / fontScale).coerceAtLeast(6f)
-        Box(
-            modifier = modifier
+        val measurer = rememberTextMeasurer()
+        val onePixel = with(LocalDensity.current) { 1.toDp() }
+        // Круг монограммы меньше плитки на пиксель с каждой стороны — та же полоска, что и у
+        // логотипа. Меряем и вписываем букву именно в этот круг.
+        val drawn = tile - onePixel * 2
+        val drawnPx = with(LocalDensity.current) { drawn.toPx() }
+        val layout = remember(monogram, drawnPx) {
+            val base = 100f
+            val style = TextStyle(fontWeight = FontWeight.Bold, fontSize = base.sp)
+            val measured = measurer.measure(AnnotatedString(monogram), style = style)
+            val scale = minOf(
+                drawnPx * 0.74f / measured.size.width.coerceAtLeast(1),
+                drawnPx * 0.92f / measured.size.height.coerceAtLeast(1),
+            )
+            measurer.measure(
+                AnnotatedString(monogram),
+                style = style.copy(fontSize = (base * scale).sp),
+            )
+        }
+        Canvas(
+            modifier = Modifier
+                .size(tile)
+                .padding(onePixel)
                 .clip(CircleShape)
                 .background(IssuerIcons.monogramColor(issuer)),
-            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = monogram,
+            drawText(
+                textLayoutResult = layout,
                 color = Color.White,
-                fontSize = fontSize.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false,
+                topLeft = Offset(
+                    (size.width - layout.size.width) / 2f,
+                    (size.height - layout.size.height) / 2f,
+                ),
             )
         }
     }
