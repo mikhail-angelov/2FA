@@ -27,7 +27,7 @@ object OtpAuthUri {
      * Parses `otpauth://totp/Issuer:account?secret=…&issuer=…&digits=…&period=…&algorithm=…`.
      *
      * Returns null when the text is not a TOTP URI (HOTP and unknown schemes are rejected
-     * rather than guessed at), so callers can show "это не TOTP-код" instead of adding junk.
+     * rather than guessed at), so callers can show "Not a TOTP code" instead of adding junk.
      */
     fun parse(raw: String): OtpAccount? {
         val text = raw.trim()

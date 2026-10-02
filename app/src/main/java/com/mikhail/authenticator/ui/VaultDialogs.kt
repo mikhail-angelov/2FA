@@ -62,10 +62,10 @@ fun VaultDialogs(
                 val text = onExport(secret)
                 withContext(Dispatchers.IO) { VaultIo.write(context, target, text) }
             }.onSuccess {
-                onMessage("Экспортировано в ${VaultIo.displayName(context, target)}")
+                onMessage("Exported to ${VaultIo.displayName(context, target)}")
                 onDismiss()
             }.onFailure {
-                onMessage("Не удалось сохранить файл: ${it.message}")
+                onMessage("Could not save the file: ${it.message}")
                 onDismiss()
             }
         }
@@ -80,7 +80,7 @@ fun VaultDialogs(
                     error = null
                 }
                 .onFailure {
-                    onMessage("Не удалось прочитать файл: ${it.message}")
+                    onMessage("Could not read the file: ${it.message}")
                     onDismiss()
                 }
         }
@@ -89,21 +89,21 @@ fun VaultDialogs(
     when (dialog) {
         VaultDialog.Export -> AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Экспорт аккаунтов") },
+            title = { Text("Export accounts") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Файл будет зашифрован паролем. Забыть его — значит потерять копию: восстановить без пароля нельзя.")
+                    Text("The file is encrypted with a password. Losing it means losing the copy: without the password it cannot be restored.")
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Пароль") },
+                        label = { Text("Password") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                     )
                     OutlinedTextField(
                         value = confirmation,
                         onValueChange = { confirmation = it },
-                        label = { Text("Повторите пароль") },
+                        label = { Text("Repeat the password") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                     )
@@ -113,16 +113,16 @@ fun VaultDialogs(
             confirmButton = {
                 TextButton(onClick = {
                     when {
-                        password.length < 8 -> error = "Пароль короче 8 символов"
-                        password != confirmation -> error = "Пароли не совпадают"
+                        password.length < 8 -> error = "Password is shorter than 8 characters"
+                        password != confirmation -> error = "Passwords do not match"
                         else -> {
                             error = null
                             createFile.launch(VaultIo.suggestedFileName())
                         }
                     }
-                }) { Text("Выбрать файл") }
+                }) { Text("Choose file") }
             },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
 
         VaultDialog.Import -> {
@@ -131,25 +131,25 @@ fun VaultDialogs(
                 // First step of the import: pick the file.
                 AlertDialog(
                     onDismissRequest = onDismiss,
-                    title = { Text("Импорт аккаунтов") },
-                    text = { Text("Выберите файл экспорта (.json). Он может лежать в любой папке — доступ даётся только к выбранному файлу.") },
+                    title = { Text("Import accounts") },
+                    text = { Text("Pick an export file (.json). It may live in any folder — access is granted to the chosen file only.") },
                     confirmButton = {
                         TextButton(onClick = { openFile.launch(arrayOf("application/json", "text/*", "*/*")) }) {
-                            Text("Выбрать файл")
+                            Text("Choose file")
                         }
                     },
-                    dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+                    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
                 )
             } else {
                 AlertDialog(
                     onDismissRequest = onDismiss,
-                    title = { Text("Пароль к файлу") },
+                    title = { Text("File password") },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = password,
                                 onValueChange = { password = it },
-                                label = { Text("Пароль") },
+                                label = { Text("Password") },
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                             )
@@ -163,19 +163,19 @@ fun VaultDialogs(
                             scope.launch {
                                 runCatching { onImport(fileText, secret) }
                                     .onSuccess { added ->
-                                        onMessage(if (added == 0) "Новых аккаунтов нет — всё уже добавлено" else "Добавлено аккаунтов: $added")
+                                        onMessage(if (added == 0) "No new accounts — everything is already added" else "Accounts added: $added")
                                         onDismiss()
                                     }
                                     .onFailure { failure ->
                                         error = when (failure) {
-                                            is AEADBadTagException -> "Неверный пароль или файл повреждён"
-                                            else -> failure.message ?: "Не удалось прочитать файл"
+                                            is AEADBadTagException -> "Wrong password or a damaged file"
+                                            else -> failure.message ?: "Could not read the file"
                                         }
                                     }
                             }
-                        }) { Text("Импортировать") }
+                        }) { Text("Import") }
                     },
-                    dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+                    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
                 )
             }
         }

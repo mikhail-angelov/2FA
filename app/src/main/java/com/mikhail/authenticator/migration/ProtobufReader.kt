@@ -29,21 +29,21 @@ internal class ProtobufReader(private val bytes: ByteArray) {
         var result = 0L
         var shift = 0
         while (true) {
-            require(position < bytes.size) { "оборванный varint" }
+            require(position < bytes.size) { "truncated varint" }
             val byte = bytes[position++].toInt() and 0xFF
             result = result or ((byte and 0x7F).toLong() shl shift)
             if (byte and 0x80 == 0) return result
             shift += 7
-            require(shift < 64) { "varint длиннее 64 бит" }
+            require(shift < 64) { "varint longer than 64 bits" }
         }
     }
 
     /** Length-delimited payload: returns a copy, never a view onto the input. */
     fun readBytes(): ByteArray {
         val length = readVarint()
-        require(length >= 0 && length <= Int.MAX_VALUE) { "отрицательная длина поля" }
+        require(length >= 0 && length <= Int.MAX_VALUE) { "negative field length" }
         val end = position + length.toInt()
-        require(end <= bytes.size) { "поле выходит за границы сообщения" }
+        require(end <= bytes.size) { "field goes past the end of the message" }
         return bytes.copyOfRange(position, end).also { position = end }
     }
 
@@ -56,12 +56,12 @@ internal class ProtobufReader(private val bytes: ByteArray) {
             1 -> skipFixed(8)
             2 -> readBytes()
             5 -> skipFixed(4)
-            else -> throw IllegalArgumentException("неизвестный тип поля: $wireType")
+            else -> throw IllegalArgumentException("unknown field type: $wireType")
         }
     }
 
     private fun skipFixed(count: Int) {
-        require(position + count <= bytes.size) { "поле выходит за границы сообщения" }
+        require(position + count <= bytes.size) { "field goes past the end of the message" }
         position += count
     }
 }

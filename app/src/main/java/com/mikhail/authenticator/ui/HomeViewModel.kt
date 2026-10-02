@@ -117,8 +117,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     } catch (e: CancellationException) {
         throw e
     } catch (t: Throwable) {
-        Log.w(TAG, "импорт сорвался на $uri", t)
-        "Импорт не удался: ${t::class.simpleName}: ${t.message}"
+        Log.w(TAG, "import failed on $uri", t)
+        "Import failed: ${t::class.simpleName}: ${t.message}"
     }
 
     private suspend fun importPickedImage(uri: Uri): String {
@@ -133,24 +133,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "не удалось прочитать поток $uri", e)
+            Log.w(TAG, "could not read the stream $uri", e)
             null
         }
         if (bytes == null || bytes.isEmpty()) {
-            Log.w(TAG, "провайдер не отдал данные: $uri")
-            return "Не удалось открыть изображение: провайдер не отдал данные"
+            Log.w(TAG, "provider returned no data: $uri")
+            return "Could not open the image: the provider returned no data"
         }
 
         val bitmap = try {
             withContext(Dispatchers.IO) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
         } catch (e: Exception) {
-            Log.w(TAG, "декодер упал на ${bytes.size} Б", e)
+            Log.w(TAG, "decoder crashed on ${bytes.size} B", e)
             null
         }
         if (bitmap == null) {
             val head = bytes.take(8).joinToString(" ") { "%02x".format(it) }
-            Log.w(TAG, "не распознано как картинка: ${bytes.size} Б, начало $head")
-            return "Не удалось открыть изображение: файл не распознан как картинка (${bytes.size} Б)"
+            Log.w(TAG, "not recognised as a picture: ${bytes.size} B, head $head")
+            return "Could not open the image: the file is not recognised as a picture (${bytes.size} B)"
         }
 
         // Подготовка вариантов — самая хрупкая часть: увеличение картинки требует памяти,
@@ -169,7 +169,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         iterator.next()
                     } catch (t: Throwable) {
                         failure = t
-                        Log.w(TAG, "вариант ${tried + 1} не подготовился", t)
+                        Log.w(TAG, "variant ${tried + 1} was not prepared", t)
                         break
                     }
                     tried++
@@ -179,7 +179,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         raw = prepared.image?.let { scanForMigrationUri(it) }
                     } catch (t: Throwable) {
                         failure = t
-                        Log.w(TAG, "вариант $tried сорвался на ML Kit", t)
+                        Log.w(TAG, "variant $tried failed in ML Kit", t)
                         raw = null
                     }
                     // Второй декодер на тех же пикселях: на мелком коде ML Kit не находит
@@ -189,32 +189,32 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         raw = try {
                             MigrationQrDecoder.decode(prepared.gray, prepared.width, prepared.height)
                         } catch (t: Throwable) {
-                            Log.w(TAG, "вариант $tried сорвался на ZXing", t)
+                            Log.w(TAG, "variant $tried failed in ZXing", t)
                             null
                         }
                     }
-                    Log.i(TAG, "вариант $tried: ${if (raw == null) "QR не найден" else "найден QR переноса ($foundBy)"}")
+                    Log.i(TAG, "variant $tried: ${if (raw == null) "QR not found" else "transfer QR found ($foundBy)"}")
                     if (raw != null) break
                 }
             }
         } catch (t: Throwable) {
             failure = t
-            Log.w(TAG, "подготовка вариантов сорвалась", t)
+            Log.w(TAG, "preparing variants failed", t)
         }
-        Log.i(TAG, "картинка ${bitmap.width}x${bitmap.height} (${bitmap.config}), проверено вариантов $tried")
+        Log.i(TAG, "image ${bitmap.width}x${bitmap.height} (${bitmap.config}), $tried variants tried")
         if (raw == null) {
             val reason = failure
             // Место сбоя обязательно: без него сообщение называет только класс исключения, и
             // искать причину приходится заново. Первой строки стека для этого достаточно.
-            val where = reason?.stackTrace?.firstOrNull()?.let { " в $it" } ?: ""
-            val why = reason?.let { " Причина: ${it::class.simpleName}: ${it.message}$where" } ?: ""
-            return "QR-код переноса не найден: картинка ${bitmap.width}x${bitmap.height}, " +
-                "формат ${bitmap.config}, проверено вариантов $tried.$why " +
-                "Нужен исходный скриншот без пересылки в мессенджере"
+            val where = reason?.stackTrace?.firstOrNull()?.let { " at $it" } ?: ""
+            val why = reason?.let { " Reason: ${it::class.simpleName}: ${it.message}$where" } ?: ""
+            return "Transfer QR not found: image ${bitmap.width}x${bitmap.height}, " +
+                "format ${bitmap.config}, $tried variants tried.$why " +
+                "Use the original screenshot, not one re-sent through a messenger"
         }
 
         val payload = runCatching { GoogleAuthMigration.parse(raw) }
-            .getOrElse { return "QR-код переноса не разобрался: ${it::class.simpleName}: ${it.message}" }
+            .getOrElse { return "Transfer QR could not be parsed: ${it::class.simpleName}: ${it.message}" }
 
         val part = MigrationImport.toAccounts(payload)
         pendingSkippedHotp += part.skippedHotp
@@ -233,7 +233,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         pendingParts[part.batchIndex] = part.accounts
 
         if (pendingParts.size < part.batchSize) {
-            return "Импортирована часть ${part.batchIndex + 1} из ${part.batchSize}. Загрузите следующий скриншот"
+            return "Part ${part.batchIndex + 1} of ${part.batchSize} imported. Load the next screenshot"
         }
 
         val merged = pendingParts.values.flatten()
@@ -252,12 +252,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun report(outcome: AccountRepository.ImportOutcome, batchSize: Int, batchIndex: Int): String {
-        val parts = if (batchSize > 1) " (частей: $batchSize, последняя ${batchIndex + 1})" else ""
+        val parts = if (batchSize > 1) " (parts: $batchSize, last ${batchIndex + 1})" else ""
         return buildString {
-            append("Импортировано аккаунтов: ${outcome.added}$parts")
-            if (outcome.duplicates > 0) append(". Уже были: ${outcome.duplicates}")
-            if (pendingSkippedHotp > 0) append(". Пропущено счётчиковых (HOTP): $pendingSkippedHotp")
-            if (pendingSkippedUnsupported > 0) append(". Пропущено неподдерживаемых: $pendingSkippedUnsupported")
+            append("Accounts imported: ${outcome.added}$parts")
+            if (outcome.duplicates > 0) append(". Already there: ${outcome.duplicates}")
+            if (pendingSkippedHotp > 0) append(". Skipped counter-based (HOTP): $pendingSkippedHotp")
+            if (pendingSkippedUnsupported > 0) append(". Skipped unsupported: $pendingSkippedUnsupported")
         }
     }
 
@@ -277,7 +277,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val height = source.height.coerceAtLeast(1)
         val copied = runCatching { source.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
         if (copied != null) return copied
-        Log.w(TAG, "копия ${source.config} → ARGB_8888 не удалась, рисуем пиксели заново")
+        Log.w(TAG, "copy ${source.config} → ARGB_8888 failed, drawing the pixels again")
         val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         Canvas(out).drawBitmap(source, 0f, 0f, null)
         return out
@@ -407,7 +407,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         if (continuation.isActive) continuation.resume(value)
                     }
                     .addOnFailureListener { error ->
-                        Log.w(TAG, "детектор отказал", error)
+                        Log.w(TAG, "detector refused", error)
                         if (continuation.isActive) continuation.resume(null)
                     }
             }

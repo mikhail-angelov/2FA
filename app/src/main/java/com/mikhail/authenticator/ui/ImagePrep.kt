@@ -67,8 +67,8 @@ object ImagePrep {
      * @return пиксели новой картинки, ширина и высота — считаются как [w] + 2 * [pad].
      */
     fun addWhiteBorder(gray: IntArray, w: Int, h: Int, pad: Int): IntArray {
-        require(w > 0 && h > 0) { "нужны размеры картинки" }
-        require(gray.size == w * h) { "размер массива не совпадает с $w x $h" }
+        require(w > 0 && h > 0) { "image dimensions are required" }
+        require(gray.size == w * h) { "array size does not match $w x $h" }
         if (pad <= 0) return gray
         val nw = w + pad * 2
         val nh = h + pad * 2
@@ -118,9 +118,9 @@ object ImagePrep {
      * @return яркость новой картинки, [w] * [factor] × [h] * [factor]
      */
     fun upscaleBicubic(gray: IntArray, w: Int, h: Int, factor: Int): IntArray {
-        require(w > 0 && h > 0) { "нужны размеры картинки" }
-        require(gray.size == w * h) { "размер массива не совпадает с $w x $h" }
-        require(factor >= 1) { "множитель должен быть не меньше единицы" }
+        require(w > 0 && h > 0) { "image dimensions are required" }
+        require(gray.size == w * h) { "array size does not match $w x $h" }
+        require(factor >= 1) { "the factor must be at least one" }
         if (factor == 1) return gray
 
         val nw = w * factor
@@ -181,9 +181,9 @@ object ImagePrep {
      * результат совпадает с [upscaleBicubic] до последнего бита, а не «примерно».
      */
     fun upscaleBicubicBytes(gray: IntArray, w: Int, h: Int, factor: Int): ByteArray {
-        require(w > 0 && h > 0) { "нужны размеры картинки" }
-        require(gray.size == w * h) { "размер массива не совпадает с $w x $h" }
-        require(factor >= 1) { "множитель должен быть не меньше единицы" }
+        require(w > 0 && h > 0) { "image dimensions are required" }
+        require(gray.size == w * h) { "array size does not match $w x $h" }
+        require(factor >= 1) { "the factor must be at least one" }
         if (factor == 1) return ByteArray(gray.size) { gray[it].toByte() }
 
         val nw = w * factor

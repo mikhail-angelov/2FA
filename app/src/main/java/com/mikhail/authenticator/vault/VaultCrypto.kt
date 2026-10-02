@@ -43,7 +43,7 @@ object VaultCrypto {
 
     /**
      * @throws javax.crypto.AEADBadTagException when the password is wrong or the file was
-     *   modified — callers surface that as "неверный пароль или файл повреждён".
+     *   modified — callers surface that as "Wrong password or a damaged file".
      */
     fun decrypt(blob: ByteArray, password: CharArray, iterations: Int = DEFAULT_ITERATIONS): ByteArray {
         require(blob.size > SALT_BYTES + IV_BYTES) { "vault payload is too short" }

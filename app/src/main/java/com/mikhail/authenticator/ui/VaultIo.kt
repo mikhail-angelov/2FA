@@ -17,12 +17,12 @@ object VaultIo {
 
     fun read(context: Context, uri: Uri): String =
         context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
-            ?: throw IllegalStateException("не удалось открыть файл")
+            ?: throw IllegalStateException("could not open the file")
 
     fun write(context: Context, uri: Uri, text: String) {
         context.contentResolver.openOutputStream(uri, "wt")?.use {
             it.write(text.toByteArray(Charsets.UTF_8))
-        } ?: throw IllegalStateException("не удалось записать файл")
+        } ?: throw IllegalStateException("could not write the file")
     }
 
     /** File name offered in the "create document" dialog, e.g. `2fa-vault-2026-10-01.json`. */

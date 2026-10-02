@@ -29,8 +29,8 @@ object MigrationQrDecoder {
      * @return строка `otpauth-migration://…` или null, если кода нет или он не тот
      */
     fun decode(gray: ByteArray, width: Int, height: Int): String? {
-        require(width > 0 && height > 0) { "нужны размеры картинки" }
-        require(gray.size == width * height) { "размер массива не совпадает с $width x $height" }
+        require(width > 0 && height > 0) { "image dimensions are required" }
+        require(gray.size == width * height) { "array size does not match $width x $height" }
 
         val source = PlanarYUVLuminanceSource(gray, width, height, 0, 0, width, height, false)
         val bitmap = BinaryBitmap(HybridBinarizer(source))

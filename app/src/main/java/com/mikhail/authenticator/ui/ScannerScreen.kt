@@ -111,7 +111,7 @@ fun ScannerScreen(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp),
         ) {
-            Button(onClick = onCancel) { Text("Отмена") }
+            Button(onClick = onCancel) { Text("Cancel") }
         }
     }
 }

@@ -61,7 +61,7 @@ object GoogleAuthMigration {
         val counter: Long,
     ) {
         override fun toString(): String =
-            "OtpParameters(name=$name, issuer=$issuer, algorithm=$algorithm, digits=$digits, type=$type, secret=${secret.size} байт)"
+            "OtpParameters(name=$name, issuer=$issuer, algorithm=$algorithm, digits=$digits, type=$type, secret=${secret.size} bytes)"
 
         override fun equals(other: Any?): Boolean = other is OtpParameters &&
             name == other.name && issuer == other.issuer && algorithm == other.algorithm &&
@@ -97,9 +97,9 @@ object GoogleAuthMigration {
      *   or the payload is not readable base64/protobuf.
      */
     fun parse(uri: String): MigrationPayload {
-        require(uri.startsWith("$URI_SCHEME://")) { "это не ссылка переноса Google Authenticator" }
+        require(uri.startsWith("$URI_SCHEME://")) { "this is not a Google Authenticator transfer link" }
         val data = queryParameter(uri, DATA_PARAMETER)
-            ?: throw IllegalArgumentException("в ссылке нет параметра data")
+            ?: throw IllegalArgumentException("the link has no data parameter")
         return parsePayload(decodeBase64(data))
     }
 
@@ -163,7 +163,7 @@ object GoogleAuthMigration {
         val trimmed = value.trim()
         return runCatching { Base64.getDecoder().decode(padded(trimmed)) }
             .recoverCatching { Base64.getUrlDecoder().decode(padded(trimmed)) }
-            .getOrElse { throw IllegalArgumentException("data не является base64: ${it.message}") }
+            .getOrElse { throw IllegalArgumentException("data is not base64: ${it.message}") }
     }
 
     private fun padded(value: String): String {

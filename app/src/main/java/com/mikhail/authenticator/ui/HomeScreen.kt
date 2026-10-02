@@ -105,7 +105,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
 
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scanning = true
-        else scope.launch { snackbarHostState.showSnackbar("Без доступа к камере можно ввести ключ вручную") }
+        else scope.launch { snackbarHostState.showSnackbar("Without camera access you can enter the key by hand") }
     }
 
     /** Текст неудачного импорта: показывается окном, пока пользователь сам его не закроет. */
@@ -120,7 +120,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        runCatching { context.startActivity(Intent.createChooser(intent, "Переслать сообщение")) }
+        runCatching { context.startActivity(Intent.createChooser(intent, "Share the message")) }
     }
 
     /**
@@ -134,7 +134,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             // Об успехе сообщает всплывашка, а неудачу показываем окном: её нужно прочитать
             // целиком и унести из приложения (скриншоты здесь запрещены), а всплывашка исчезает
             // сама и обрезает длинный текст. Окно закрывается только кнопкой.
-            if (message.startsWith("Импортировано")) {
+            if (message.startsWith("Accounts imported")) {
                 snackbarHostState.showSnackbar(message)
             } else {
                 importProblem = message
@@ -146,13 +146,13 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         AlertDialog(
             onDismissRequest = { },
             icon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) },
-            title = { Text("Импорт из картинки не удался") },
+            title = { Text("Import from image failed") },
             text = { SelectionContainer { Text(text) } },
-            confirmButton = { TextButton(onClick = { importProblem = null }) { Text("Закрыть") } },
+            confirmButton = { TextButton(onClick = { importProblem = null }) { Text("Close") } },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { clipboard.setText(AnnotatedString(text)) }) { Text("Скопировать") }
-                    TextButton(onClick = { shareText(text) }) { Text("Поделиться") }
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(text)) }) { Text("Copy") }
+                    TextButton(onClick = { shareText(text) }) { Text("Share") }
                 }
             },
         )
@@ -162,7 +162,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     fun copyCode(code: String) {
         clipboard.setText(AnnotatedString(code))
         scope.launch {
-            snackbarHostState.showSnackbar("Код скопирован")
+            snackbarHostState.showSnackbar("Code copied")
             // Android 13+ shows its own "copied" toast; clearing silently 30 s later is still right.
             delay(30_000)
             val current = clipboard.getText()?.text
@@ -176,10 +176,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 scanning = false
                 val parsed = OtpAuthUri.parse(raw)
                 if (parsed == null) {
-                    scope.launch { snackbarHostState.showSnackbar("Это не TOTP-код: ожидался otpauth://totp/…") }
+                    scope.launch { snackbarHostState.showSnackbar("Not a TOTP code: expected otpauth://totp/…") }
                 } else {
                     viewModel.add(parsed)
-                    scope.launch { snackbarHostState.showSnackbar("Добавлено: ${parsed.issuer}") }
+                    scope.launch { snackbarHostState.showSnackbar("Added: ${parsed.issuer}") }
                 }
             },
             onCancel = { scanning = false },
@@ -193,10 +193,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 title = { Text("2FA") },
                 actions = {
                     IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
                     IconButton(onClick = { vaultDialog = VaultDialog.Export }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Экспорт и импорт")
+                        Icon(Icons.Filled.Share, contentDescription = "Export and import")
                     }
                 },
             )
@@ -204,7 +204,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddSheet = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Добавить аккаунт")
+                Icon(Icons.Filled.Add, contentDescription = "Add account")
             }
         },
     ) { padding ->
@@ -234,8 +234,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             sheetState = rememberModalBottomSheetState(),
         ) {
             ListItem(
-                headlineContent = { Text("Поднять наверх") },
-                supportingContent = { Text("Показывать первым в списке") },
+                headlineContent = { Text("Move to top") },
+                supportingContent = { Text("Show first in the list") },
                 leadingContent = { Icon(Icons.Filled.VerticalAlignTop, contentDescription = null) },
                 modifier = Modifier.clickableItem {
                     viewModel.moveToTop(pressed)
@@ -243,15 +243,15 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 },
             )
             ListItem(
-                headlineContent = { Text("Удалить") },
+                headlineContent = { Text("Delete") },
                 supportingContent = { Text(pressed.issuer) },
                 leadingContent = { Icon(Icons.Filled.Delete, contentDescription = null) },
                 modifier = Modifier.clickableItem {
                     longPressed = null
                     scope.launch {
                         val result = snackbarHostState.showSnackbar(
-                            "Удалить ${pressed.issuer}?",
-                            actionLabel = "Удалить",
+                            "Delete ${pressed.issuer}?",
+                            actionLabel = "Delete",
                         )
                         if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
                             viewModel.delete(pressed)
@@ -268,7 +268,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             sheetState = rememberModalBottomSheetState(),
         ) {
             ListItem(
-                headlineContent = { Text("Сканировать QR") },
+                headlineContent = { Text("Scan QR") },
                 leadingContent = { Icon(Icons.Filled.QrCodeScanner, contentDescription = null) },
                 modifier = Modifier.clickableItem {
                     showAddSheet = false
@@ -276,8 +276,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 },
             )
             ListItem(
-                headlineContent = { Text("Импорт из скриншота") },
-                supportingContent = { Text("Ключи из Google Authenticator") },
+                headlineContent = { Text("Import from screenshot") },
+                supportingContent = { Text("Keys from Google Authenticator") },
                 leadingContent = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null) },
                 modifier = Modifier.clickableItem {
                     showAddSheet = false
@@ -287,7 +287,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 },
             )
             ListItem(
-                headlineContent = { Text("Ввести вручную") },
+                headlineContent = { Text("Enter manually") },
                 leadingContent = { Icon(Icons.Filled.Edit, contentDescription = null) },
                 modifier = Modifier.clickableItem {
                     showAddSheet = false
@@ -303,7 +303,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             onSave = { account ->
                 viewModel.add(account)
                 showManualForm = false
-                scope.launch { snackbarHostState.showSnackbar("Добавлено: ${account.issuer}") }
+                scope.launch { snackbarHostState.showSnackbar("Added: ${account.issuer}") }
             },
         )
     }
@@ -324,12 +324,12 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
             icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-            title = { Text("Настройки") },
+            title = { Text("Settings") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Колонок в списке (портретный режим)")
+                    Text("Columns in the list (portrait)")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(1 to "Одна", 2 to "Две").forEach { (count, label) ->
+                        listOf(1 to "One", 2 to "Two").forEach { (count, label) ->
                             FilterChip(
                                 selected = portraitColumns == count,
                                 onClick = {
@@ -342,7 +342,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Готово") } },
+            confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Done") } },
         )
     }
 }
@@ -365,9 +365,9 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "Пока пусто", style = MaterialTheme.typography.titleMedium)
+        Text(text = "Nothing here yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            text = "Добавьте аккаунт кнопкой +",
+            text = "Add an account with the + button",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -384,27 +384,27 @@ private fun ManualEntryDialog(onDismiss: () -> Unit, onSave: (OtpAccount) -> Uni
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый аккаунт") },
+        title = { Text("New account") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = issuer,
                     onValueChange = { issuer = it },
-                    label = { Text("Сервис") },
+                    label = { Text("Issuer") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     value = account,
                     onValueChange = { account = it },
-                    label = { Text("Аккаунт") },
+                    label = { Text("Account") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     value = secret,
                     onValueChange = { secret = it },
-                    label = { Text("Секретный ключ (Base32)") },
+                    label = { Text("Secret key (Base32)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 )
@@ -415,8 +415,8 @@ private fun ManualEntryDialog(onDismiss: () -> Unit, onSave: (OtpAccount) -> Uni
             TextButton(onClick = {
                 val cleanSecret = secret.trim()
                 val problem = when {
-                    cleanSecret.isEmpty() -> "Введите секретный ключ"
-                    else -> runCatching { Totp.generate(cleanSecret) }.exceptionOrNull()?.let { "Ключ не похож на Base32" }
+                    cleanSecret.isEmpty() -> "Enter the secret key"
+                    else -> runCatching { Totp.generate(cleanSecret) }.exceptionOrNull()?.let { "The key does not look like Base32" }
                 }
                 if (problem != null) {
                     error = problem
@@ -424,7 +424,7 @@ private fun ManualEntryDialog(onDismiss: () -> Unit, onSave: (OtpAccount) -> Uni
                 }
                 onSave(
                     OtpAccount(
-                        issuer = issuer.trim().ifEmpty { account.trim().ifEmpty { "Аккаунт" } },
+                        issuer = issuer.trim().ifEmpty { account.trim().ifEmpty { "Account" } },
                         account = account.trim(),
                         secret = cleanSecret.uppercase().filter { !it.isWhitespace() },
                         algorithm = OtpAlgorithm.SHA1,
@@ -432,8 +432,8 @@ private fun ManualEntryDialog(onDismiss: () -> Unit, onSave: (OtpAccount) -> Uni
                         period = Totp.DEFAULT_PERIOD,
                     ),
                 )
-            }) { Text("Сохранить") }
+            }) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

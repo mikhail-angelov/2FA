@@ -134,7 +134,7 @@ fun OtpCard(
                     // В двух колонках секунды убраны совсем: там говорит только кольцо.
                     if (soon && !compact) {
                         Text(
-                            text = "$secondsRemaining с",
+                            text = "$secondsRemaining s",
                             color = ringColor,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,

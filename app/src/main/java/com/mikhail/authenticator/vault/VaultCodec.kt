@@ -32,19 +32,19 @@ object VaultCodec {
     /**
      * @throws IllegalArgumentException when the text is not a vault file of this format.
      * @throws javax.crypto.AEADBadTagException when the password is wrong or the file was
-     *   modified — callers surface that as "неверный пароль или файл повреждён".
+     *   modified — callers surface that as "Wrong password or a damaged file".
      */
     fun decode(fileText: String, password: CharArray): List<VaultEntry> {
         val file = runCatching { json.decodeFromString(VaultFile.serializer(), fileText) }
-            .getOrElse { throw IllegalArgumentException("это не файл экспорта 2FA", it) }
+            .getOrElse { throw IllegalArgumentException("this is not a 2FA export file", it) }
         require(file.format == VaultFile.FORMAT) {
-            "неизвестный формат файла: ${file.format}"
+            "unknown file format: ${file.format}"
         }
         require(file.cipher == VaultFile.CIPHER && file.kdf == VaultFile.KDF) {
-            "неподдерживаемый способ шифрования: ${file.kdf}/${file.cipher}"
+            "unsupported encryption: ${file.kdf}/${file.cipher}"
         }
         val blob = runCatching { Base64.getDecoder().decode(file.data) }
-            .getOrElse { throw IllegalArgumentException("повреждённое поле data", it) }
+            .getOrElse { throw IllegalArgumentException("damaged data field", it) }
         val plaintext = VaultCrypto.decrypt(blob, password, file.iterations)
         return json.decodeFromString(VaultPayload.serializer(), String(plaintext, Charsets.UTF_8)).entries
     }
