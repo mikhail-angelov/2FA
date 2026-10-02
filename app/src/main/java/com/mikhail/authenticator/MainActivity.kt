@@ -19,6 +19,11 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
         )
 
+        // Экран не гаснет и не затемняется, пока приложение на переднем плане: код нужен в тот
+        // момент, когда его вводят, а не после повторной разблокировки. Флаг действует только
+        // пока окно видно, поэтому в фоне батарея не тратится.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         setContent {
             TwoFactorTheme {
                 HomeScreen()

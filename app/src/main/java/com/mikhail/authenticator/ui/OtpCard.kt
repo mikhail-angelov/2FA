@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
@@ -41,22 +41,25 @@ import com.mikhail.authenticator.data.StoredAccount
 import com.mikhail.authenticator.icons.IssuerIcons
 
 /**
- * One account card, two rows (spec §2.3): the issuer name owns the top row across the full
- * width, the bottom row carries the icon inside the countdown ring next to the current code.
- * Tapping anywhere copies the code.
+ * One account card (spec §2.3). The countdown ring sits **on the card's top-left rounded
+ * corner** — its centre coincides with the centre of the corner arc, so the circle traces the
+ * card edge instead of standing beside it — and the issuer icon lives inside the ring, one or
+ * two pixels away from it. The text column keeps clear of the ring and carries the name and the
+ * current code, and tapping anywhere copies the code.
  *
- * The seconds appear next to the name only in the last ten seconds, but their slot is reserved
- * at all times — the top row keeps the same length whether they are shown or not, so nothing
- * jumps and nothing wraps when they arrive. The ring turns amber at ten seconds and red at
- * five, and the seconds are printed next to the name: the warning never rests on colour alone.
+ * The ring turns amber from ten seconds left and red from five. In the single-column layout the
+ * seconds are also printed next to the name, and their slot is reserved at all times so the top
+ * line never changes length; in the two-column layout the seconds are dropped entirely — there
+ * the ring alone carries the warning and nothing competes with the name.
  *
- * The code is never truncated: its size is fitted to the width actually left in the bottom row
- * **and divided by the system font scale**, because `maxWidth` arrives in dp while text is
- * drawn in sp. Without that division a phone with a larger system font overflows the card and
- * the trailing digits disappear.
+ * The code is never truncated: its size is fitted to the width actually left on the line **and
+ * divided by the system font scale**, because `maxWidth` arrives in dp while text is drawn in
+ * sp. Without that division a phone with a larger system font overflows the card and the
+ * trailing digits disappear. The monogram fallback is sized from the tile and scaled the same
+ * way, so a letter fits inside the icon instead of spilling out of it.
  *
- * [compact] — режим узкой карточки (две колонки в портрете, ландшафт): плитка и кольцо
- * уменьшаются, строка логина скрывается, имя подрезается многоточием.
+ * [compact] — режим узкой карточки (две колонки в портрете, ландшафт): отступы плотнее, логин
+ * и секунды скрыты, кегль кода чуть меньше.
  */
 @Composable
 fun OtpCard(
@@ -68,6 +71,14 @@ fun OtpCard(
     onCopy: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
+    // Кольцо по дуге закругления: диаметр равен двум радиусам угла.
+    val corner = if (compact) 14.dp else 18.dp
+    val ringSize = corner * 2
+    val stroke = if (compact) 2.dp else 2.5.dp
+    // Зазор между кольцом и плиткой — 1–2 px, поэтому плитка почти вплотную к окружности.
+    val gap = if (compact) 1.dp else 2.dp
+    val tileSize = ringSize - stroke * 2 - gap * 2
+
     val fraction = (secondsRemaining.toFloat() / account.period.toFloat()).coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(targetValue = fraction, label = "period-progress")
     val soon = secondsRemaining <= 10
@@ -77,104 +88,75 @@ fun OtpCard(
         else -> MaterialTheme.colorScheme.primary
     }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onCopy),
-        shape = RoundedCornerShape(if (compact) 14.dp else 18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(
+    Box(modifier = modifier.fillMaxWidth()) {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(if (compact) 10.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
+                .clickable(onClick = onCopy),
+            shape = RoundedCornerShape(corner),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         ) {
-            // Верхняя строка: имя на всю ширину карточки, место под секунды зарезервировано
-            // всегда — длина строки не меняется, когда секунды появляются.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = ringSize + if (compact) 6.dp else 8.dp,
+                        top = if (compact) 6.dp else 8.dp,
+                        end = if (compact) 8.dp else 10.dp,
+                        bottom = if (compact) 6.dp else 8.dp,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 3.dp),
             ) {
-                Text(
-                    text = account.issuer,
-                    style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = if (soon) "$secondsRemaining с" else "",
-                    color = ringColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = if (compact) 11.sp else 12.sp,
-                    maxLines = 1,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.widthIn(min = if (compact) 30.dp else 34.dp),
-                )
-            }
-
-            // В узкой карточке логин скрыт целиком: режем имя, а не код.
-            if (!compact) {
-                Text(
-                    text = account.account,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            // Нижняя строка: кольцо отсчёта вокруг иконки и сам код.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier.size(if (compact) 30.dp else 38.dp),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(
-                        progress = { animatedFraction },
-                        modifier = Modifier.fillMaxSize(),
-                        color = ringColor,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                        strokeWidth = if (compact) 2.5.dp else 3.dp,
-                        strokeCap = StrokeCap.Round,
+                    Text(
+                        text = account.issuer,
+                        style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(if (compact) 22.dp else 28.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        IssuerIcon(
-                            issuer = account.issuer,
-                            monogramSize = if (compact) 9.sp else 12.sp,
-                            modifier = Modifier.size(if (compact) 14.dp else 18.dp),
+                    // В двух колонках секунды убраны совсем: там говорит только кольцо.
+                    if (soon && !compact) {
+                        Text(
+                            text = "$secondsRemaining с",
+                            color = ringColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.widthIn(min = 34.dp),
                         )
                     }
+                }
+
+                // В узкой карточке логин скрыт целиком: режем имя, а не код.
+                if (!compact) {
+                    Text(
+                        text = account.account,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
 
                 // Кегль подбирается по фактически оставшейся ширине в dp и делится на системный
                 // масштаб шрифта: текст рисуется в sp, а maxWidth приходит в dp — без деления
                 // цифры уезжают за край карточки на телефоне с крупным системным шрифтом.
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = if (compact) 8.dp else 10.dp),
-                ) {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val formatted = formatCode(code)
                     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(0.5f)
                     val fit = maxWidth.value / (0.62f * formatted.length.coerceAtLeast(1)) / fontScale
                     Text(
                         text = formatted,
                         fontSize = fit
-                            .coerceAtMost(if (compact) 24f else 28f)
-                            .coerceAtLeast(11f)
+                            .coerceAtMost(if (compact) 30f else 36f)
+                            .coerceAtLeast(12f)
                             .sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
@@ -182,6 +164,37 @@ fun OtpCard(
                         softWrap = false,
                     )
                 }
+            }
+        }
+
+        // Кольцо отсчёта сидит ровно на закруглённом углу карточки: центр окружности совпадает
+        // с центром дуги закругления, поэтому она обводит край элемента, а не стоит рядом с ним.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(ringSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(
+                progress = { animatedFraction },
+                modifier = Modifier.fillMaxSize(),
+                color = ringColor,
+                trackColor = MaterialTheme.colorScheme.outlineVariant,
+                strokeWidth = stroke,
+                strokeCap = StrokeCap.Round,
+            )
+            Box(
+                modifier = Modifier
+                    .size(tileSize)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center,
+            ) {
+                IssuerIcon(
+                    issuer = account.issuer,
+                    tile = tileSize,
+                    modifier = Modifier.size(tileSize * 0.72f),
+                )
             }
         }
     }
@@ -194,9 +207,17 @@ internal fun formatCode(code: String): String = when (code.length) {
     else -> code
 }
 
+/**
+ * Favicon of the issuer when it is known and reachable, otherwise a monogram. Both are sized
+ * from [tile] so the fallback letter stays inside the tile whatever the system font scale is.
+ */
 @Composable
-private fun IssuerIcon(issuer: String, monogramSize: TextUnit = 20.sp, modifier: Modifier = Modifier) {
+private fun IssuerIcon(issuer: String, tile: Dp, modifier: Modifier = Modifier) {
     val fallback: @Composable () -> Unit = {
+        val monogram = IssuerIcons.monogram(issuer)
+        val chars = monogram.length.coerceAtLeast(1)
+        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(0.5f)
+        val fontSize = (tile.value * 0.52f / chars / fontScale).coerceAtLeast(6f)
         Box(
             modifier = modifier
                 .clip(CircleShape)
@@ -204,10 +225,12 @@ private fun IssuerIcon(issuer: String, monogramSize: TextUnit = 20.sp, modifier:
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = IssuerIcons.monogram(issuer),
+                text = monogram,
                 color = Color.White,
-                fontSize = monogramSize,
+                fontSize = fontSize.sp,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }
@@ -216,7 +239,6 @@ private fun IssuerIcon(issuer: String, monogramSize: TextUnit = 20.sp, modifier:
     if (url == null) {
         fallback()
     } else {
-        // Favicon when reachable, monogram when offline or unknown — the list is never iconless.
         SubcomposeAsyncImage(
             model = url,
             contentDescription = null,

@@ -44,6 +44,17 @@ fun bigUpscaleFactor(longest: Int): Int =
 
 private const val TAG = "OtpImport"
 
+/**
+ * Предел для увеличения по серому: больший размер картинки после масштабирования.
+ *
+ * Множитель ×4 применялся безусловно, и на крупной картинке это переполняло память: снимок
+ * 1080×2400 давал массив 4320×9600 — 41 Мпикс, около 166 МБ только под инты, а следом ещё
+ * столько же под байты для декодера. Вариант не готовился, последовательность обрывалась, и
+ * импорт заканчивался «QR не найден», хотя первый вариант код не нашёл лишь из-за размера.
+ * Крупной картинке увеличение не нужно: она и так читается. Ограничиваем больший размер.
+ */
+private const val MAX_UPSCALE_SIDE = 2400
+
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AccountRepository(AppDatabase.get(application).otpDao())
@@ -308,11 +319,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         // 1) как есть — самый дешёвый вариант, для крупных и контрастных картинок
         yield(Prepared(InputImage.fromBitmap(upright, 0), MigrationQrDecoder.toGrayBytes(gray0), w0, h0))
 
-        // 2) серое ×4 бикубикой — рецепт, найденный на живом образце
-        val factor = 4
+        // 2) серое увеличение — рецепт, найденный на живом образце.
+        //    Множитель ограничен сверху и по размеру картинки: ×4 над снимком 1080×2400 —
+        //    это 166 МБ под инты, и подготовка варианта падала по памяти. Ограничение
+        //    MAX_UPSCALE_SIDE оставляет запас для мелкого кода и снимает переполнение
+        //    на крупном, которому увеличение не нужно.
+        val factor = (MAX_UPSCALE_SIDE / maxOf(w0, h0)).coerceIn(1, 4)
         val gw = w0 * factor
         val gh = h0 * factor
-        val big = ImagePrep.upscaleBicubic(gray0, w0, h0, factor)
+        val big = if (factor > 1) ImagePrep.upscaleBicubic(gray0, w0, h0, factor) else gray0
         yield(Prepared(toImage(big, gw, gh), MigrationQrDecoder.toGrayBytes(big), gw, gh))
 
         // 3) то же с белым полем: детектору нужна граница, чтобы найти углы кода
