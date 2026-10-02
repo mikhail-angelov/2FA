@@ -35,7 +35,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -86,6 +85,9 @@ fun OtpCard(
     // пиксель — ровно один пиксель и берём.
     val onePixel = with(LocalDensity.current) { 1.toDp() }
     val tileSize = ringSize - stroke * 2 - onePixel * 2
+    // Отступ под кольцо нужен только верхним строкам: код стоит ниже кольца, поэтому занимает
+    // всю ширину карточки и кольцом не подрезается.
+    val ringInset = ringSize + if (compact) 6.dp else 8.dp
 
     val fraction = (secondsRemaining.toFloat() / account.period.toFloat()).coerceIn(0f, 1f)
     val animatedFraction by animateFloatAsState(targetValue = fraction, label = "period-progress")
@@ -109,7 +111,6 @@ fun OtpCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = ringSize + if (compact) 6.dp else 8.dp,
                         top = if (compact) 6.dp else 8.dp,
                         end = if (compact) 8.dp else 10.dp,
                         bottom = if (compact) 6.dp else 8.dp,
@@ -117,7 +118,9 @@ fun OtpCard(
                 verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 3.dp),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = ringInset),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -150,6 +153,7 @@ fun OtpCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = ringInset),
                     )
                 }
 
@@ -163,11 +167,12 @@ fun OtpCard(
                     Text(
                         text = formatted,
                         fontSize = fit
-                            .coerceAtMost(if (compact) 30f else 36f)
+                            .coerceAtMost(if (compact) 34f else 40f)
                             .coerceAtLeast(12f)
                             .sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        // Насыщенность берём максимальную: моноширинное семейство на телефоне
+                        // рисует жирный вес почти как обычный, и код выглядел нежирным.
+                        fontWeight = FontWeight.Black,
                         maxLines = 1,
                         softWrap = false,
                     )
